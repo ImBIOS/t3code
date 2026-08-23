@@ -115,6 +115,7 @@ const wakeupsLayer = Wakeups.layer({
 const capabilitiesLayer = Layer.effectContext(
   Effect.gen(function* () {
     const storage = yield* MobileStorage.MobileStorage;
+    const clientInstanceId = yield* storage.loadOrCreateClientInstanceId.pipe(Effect.option);
     return Context.make(
       CloudSession,
       CloudSession.of({
@@ -167,7 +168,10 @@ const capabilitiesLayer = Layer.effectContext(
       Context.add(
         ClientPresentation,
         ClientPresentation.of({
-          metadata: authClientMetadata(Constants.expoConfig?.version),
+          metadata: authClientMetadata({
+            ...(Constants.expoConfig?.version ? { appVersion: Constants.expoConfig.version } : {}),
+            ...(Option.isSome(clientInstanceId) ? { instanceId: clientInstanceId.value } : {}),
+          }),
           scopes: AuthStandardClientScopes,
         }),
       ),

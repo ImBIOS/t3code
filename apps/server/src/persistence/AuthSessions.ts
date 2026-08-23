@@ -37,6 +37,7 @@ export const AuthSessionRecord = Schema.Struct({
   scopes: AuthEnvironmentScopes,
   method: ServerAuthSessionMethod,
   client: AuthSessionClientMetadataRecord,
+  instanceId: Schema.NullOr(Schema.String),
   issuedAt: Schema.DateTimeUtcFromString,
   expiresAt: Schema.DateTimeUtcFromString,
   lastConnectedAt: Schema.NullOr(Schema.DateTimeUtcFromString),
@@ -50,6 +51,7 @@ export const CreateAuthSessionInput = Schema.Struct({
   scopes: AuthEnvironmentScopes,
   method: ServerAuthSessionMethod,
   client: AuthSessionClientMetadataRecord,
+  instanceId: Schema.NullOr(Schema.String),
   issuedAt: Schema.DateTimeUtcFromString,
   expiresAt: Schema.DateTimeUtcFromString,
 });
@@ -90,6 +92,26 @@ export const SetAuthSessionClientConnectionInput = Schema.Struct({
 });
 export type SetAuthSessionClientConnectionInput = typeof SetAuthSessionClientConnectionInput.Type;
 
+export const ListActiveAuthSessionsForIdentityInput = Schema.Struct({
+  now: Schema.DateTimeUtcFromString,
+  subject: Schema.String,
+  method: ServerAuthSessionMethod,
+  instanceId: Schema.String,
+});
+export type ListActiveAuthSessionsForIdentityInput =
+  typeof ListActiveAuthSessionsForIdentityInput.Type;
+
+export const UpdateAuthSessionExpirationInput = Schema.Struct({
+  sessionId: AuthSessionId,
+  expiresAt: Schema.DateTimeUtcFromString,
+});
+export type UpdateAuthSessionExpirationInput = typeof UpdateAuthSessionExpirationInput.Type;
+
+export const PruneAuthSessionsInput = Schema.Struct({
+  now: Schema.DateTimeUtcFromString,
+});
+export type PruneAuthSessionsInput = typeof PruneAuthSessionsInput.Type;
+
 export class AuthSessionRepository extends Context.Service<
   AuthSessionRepository,
   {
@@ -114,6 +136,15 @@ export class AuthSessionRepository extends Context.Service<
     readonly setClientConnection: (
       input: SetAuthSessionClientConnectionInput,
     ) => Effect.Effect<void, AuthSessionRepositoryError>;
+    readonly listActiveForIdentity: (
+      input: ListActiveAuthSessionsForIdentityInput,
+    ) => Effect.Effect<ReadonlyArray<AuthSessionRecord>, AuthSessionRepositoryError>;
+    readonly updateExpiration: (
+      input: UpdateAuthSessionExpirationInput,
+    ) => Effect.Effect<void, AuthSessionRepositoryError>;
+    readonly prune: (
+      input: PruneAuthSessionsInput,
+    ) => Effect.Effect<number, AuthSessionRepositoryError>;
   }
 >()("t3/persistence/AuthSessions/AuthSessionRepository") {}
 
@@ -128,6 +159,7 @@ const AuthSessionDbRow = Schema.Struct({
   clientDeviceType: Schema.Literals(["desktop", "mobile", "tablet", "bot", "unknown"]),
   clientOs: Schema.NullOr(Schema.String),
   clientBrowser: Schema.NullOr(Schema.String),
+  clientInstanceId: Schema.NullOr(Schema.String),
   issuedAt: Schema.DateTimeUtcFromString,
   expiresAt: Schema.DateTimeUtcFromString,
   lastConnectedAt: Schema.NullOr(Schema.DateTimeUtcFromString),
@@ -145,6 +177,7 @@ const AuthSessionRawDbRow = Schema.Struct({
   clientDeviceType: Schema.Unknown,
   clientOs: Schema.Unknown,
   clientBrowser: Schema.Unknown,
+  clientInstanceId: Schema.Unknown,
   issuedAt: Schema.Unknown,
   expiresAt: Schema.Unknown,
   lastConnectedAt: Schema.Unknown,
@@ -167,6 +200,7 @@ function toAuthSessionRecord(row: typeof AuthSessionDbRow.Type): AuthSessionReco
       os: row.clientOs,
       browser: row.clientBrowser,
     },
+    instanceId: row.clientInstanceId,
     issuedAt: row.issuedAt,
     expiresAt: row.expiresAt,
     lastConnectedAt: row.lastConnectedAt,
@@ -207,6 +241,7 @@ export const make = Effect.gen(function* () {
           client_device_type,
           client_os,
           client_browser,
+          client_instance_id,
           issued_at,
           expires_at,
           revoked_at
@@ -222,6 +257,7 @@ export const make = Effect.gen(function* () {
           ${input.client.deviceType},
           ${input.client.os},
           ${input.client.browser},
+          ${input.instanceId},
           ${input.issuedAt},
           ${input.expiresAt},
           NULL
@@ -229,56 +265,44 @@ export const make = Effect.gen(function* () {
       `,
   });
 
+  const sessionRowSelection = sql`
+    SELECT
+      session_id AS "sessionId",
+      subject AS "subject",
+      scopes AS "scopes",
+      method AS "method",
+      client_label AS "clientLabel",
+      client_ip_address AS "clientIpAddress",
+      client_user_agent AS "clientUserAgent",
+      client_device_type AS "clientDeviceType",
+      client_os AS "clientOs",
+      client_browser AS "clientBrowser",
+      client_instance_id AS "clientInstanceId",
+      issued_at AS "issuedAt",
+      expires_at AS "expiresAt",
+      last_connected_at AS "lastConnectedAt",
+      revoked_at AS "revokedAt"
+    FROM auth_sessions
+  `;
+
   const getSessionRowById = SqlSchema.findOneOption({
     Request: GetAuthSessionByIdInput,
     Result: AuthSessionRawDbRow,
-    execute: ({ sessionId }) =>
-      sql`
-        SELECT
-          session_id AS "sessionId",
-          subject AS "subject",
-          scopes AS "scopes",
-          method AS "method",
-          client_label AS "clientLabel",
-          client_ip_address AS "clientIpAddress",
-          client_user_agent AS "clientUserAgent",
-          client_device_type AS "clientDeviceType",
-          client_os AS "clientOs",
-          client_browser AS "clientBrowser",
-          issued_at AS "issuedAt",
-          expires_at AS "expiresAt",
-          last_connected_at AS "lastConnectedAt",
-          revoked_at AS "revokedAt"
-        FROM auth_sessions
-        WHERE session_id = ${sessionId}
-      `,
+    execute: ({ sessionId }) => sql`${sessionRowSelection} WHERE session_id = ${sessionId}`,
   });
 
   const listActiveSessionRows = SqlSchema.findAll({
     Request: ListActiveAuthSessionsInput,
     Result: AuthSessionRawDbRow,
     execute: ({ now }) =>
-      sql`
-        SELECT
-          session_id AS "sessionId",
-          subject AS "subject",
-          scopes AS "scopes",
-          method AS "method",
-          client_label AS "clientLabel",
-          client_ip_address AS "clientIpAddress",
-          client_user_agent AS "clientUserAgent",
-          client_device_type AS "clientDeviceType",
-          client_os AS "clientOs",
-          client_browser AS "clientBrowser",
-          issued_at AS "issuedAt",
-          expires_at AS "expiresAt",
-          last_connected_at AS "lastConnectedAt",
-          revoked_at AS "revokedAt"
-        FROM auth_sessions
-        WHERE revoked_at IS NULL
-          AND expires_at > ${now}
-        ORDER BY issued_at DESC, session_id DESC
-      `,
+      sql`${sessionRowSelection} WHERE revoked_at IS NULL AND expires_at > ${now} ORDER BY issued_at DESC, session_id DESC`,
+  });
+
+  const listActiveSessionRowsForIdentity = SqlSchema.findAll({
+    Request: ListActiveAuthSessionsForIdentityInput,
+    Result: AuthSessionRawDbRow,
+    execute: ({ now, subject, method, instanceId }) =>
+      sql`${sessionRowSelection} WHERE subject = ${subject} AND method = ${method} AND client_instance_id = ${instanceId} AND revoked_at IS NULL AND expires_at > ${now} ORDER BY issued_at DESC`,
   });
 
   const setLastConnectedAtRow = SqlSchema.void({
@@ -306,6 +330,28 @@ export const make = Effect.gen(function* () {
       `,
   });
 
+  const updateSessionExpirationRow = SqlSchema.void({
+    Request: UpdateAuthSessionExpirationInput,
+    execute: ({ sessionId, expiresAt }) =>
+      sql`
+        UPDATE auth_sessions
+        SET expires_at = ${expiresAt}
+        WHERE session_id = ${sessionId}
+          AND revoked_at IS NULL
+      `,
+  });
+
+  const prunedSessionRows = SqlSchema.findAll({
+    Request: PruneAuthSessionsInput,
+    Result: Schema.Struct({ sessionId: AuthSessionId }),
+    execute: ({ now }) =>
+      sql`
+        DELETE FROM auth_sessions
+        WHERE expires_at <= ${now}
+          OR revoked_at IS NOT NULL
+        RETURNING session_id AS "sessionId"
+      `,
+  });
   const revokeSessionRows = SqlSchema.findAll({
     Request: RevokeAuthSessionInput,
     Result: Schema.Struct({ sessionId: AuthSessionId }),
@@ -440,6 +486,54 @@ export const make = Effect.gen(function* () {
       ),
     );
 
+  const listActiveForIdentity: AuthSessionRepository["Service"]["listActiveForIdentity"] = (
+    input,
+  ) =>
+    listActiveSessionRowsForIdentity(input).pipe(
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "AuthSessionRepository.listActiveForIdentity:query",
+          "AuthSessionRepository.listActiveForIdentity:decodeRows",
+          { instanceId: input.instanceId },
+        ),
+      ),
+      Effect.flatMap((rows) =>
+        Effect.forEach(rows, (row) =>
+          decodeAuthSessionDbRow(row).pipe(
+            Effect.mapError((cause) =>
+              PersistenceDecodeError.fromSchemaError(
+                "AuthSessionRepository.listActiveForIdentity:decodeRows",
+                cause,
+                { instanceId: input.instanceId },
+              ),
+            ),
+            Effect.map(toAuthSessionRecord),
+          ),
+        ),
+      ),
+    );
+
+  const updateExpiration: AuthSessionRepository["Service"]["updateExpiration"] = (input) =>
+    updateSessionExpirationRow(input).pipe(
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "AuthSessionRepository.updateExpiration:query",
+          "AuthSessionRepository.updateExpiration:encodeRequest",
+          { sessionId: input.sessionId },
+        ),
+      ),
+    );
+
+  const prune: AuthSessionRepository["Service"]["prune"] = (input) =>
+    prunedSessionRows(input).pipe(
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "AuthSessionRepository.prune:query",
+          "AuthSessionRepository.prune:decodeRows",
+        ),
+      ),
+      Effect.map((rows) => rows.length),
+    );
   return {
     create,
     getById,
@@ -448,6 +542,9 @@ export const make = Effect.gen(function* () {
     revokeAllExcept,
     setLastConnectedAt,
     setClientConnection,
+    listActiveForIdentity,
+    updateExpiration,
+    prune,
   } satisfies AuthSessionRepository["Service"];
 });
 
