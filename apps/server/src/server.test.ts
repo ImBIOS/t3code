@@ -201,6 +201,7 @@ const testEnvironmentDescriptor = {
 const makeDefaultOrchestrationReadModel = () => {
   const now = "2026-01-01T00:00:00.000Z";
   return {
+    tasks: [],
     snapshotSequence: 0,
     updatedAt: now,
     projects: [
@@ -797,6 +798,8 @@ const buildAppUnderTest = (options?: {
               updatedAt: "1970-01-01T00:00:00.000Z",
             }),
           searchThreads: () => Effect.succeed({ matches: [] }),
+          listTasks: () => Effect.succeed([]),
+          listDueTasks: () => Effect.succeed([]),
           getSnapshotSequence: () => Effect.succeed({ snapshotSequence: 0 }),
           getProjectShellById: () => Effect.succeed(Option.none()),
           getThreadShellById: () => Effect.succeed(Option.none()),
@@ -5825,6 +5828,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       const now = "2026-01-01T00:00:00.000Z";
       const snapshot = {
         snapshotSequence: 1,
+        tasks: [],
         updatedAt: now,
         projects: [
           {
