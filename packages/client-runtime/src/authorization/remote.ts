@@ -30,6 +30,7 @@ const clientMetadataTokenExchangeFields = (
   ...(clientMetadata?.label ? { client_label: clientMetadata.label } : {}),
   ...(clientMetadata?.deviceType ? { client_device_type: clientMetadata.deviceType } : {}),
   ...(clientMetadata?.os ? { client_os: clientMetadata.os } : {}),
+  ...(clientMetadata?.instanceId ? { client_instance_id: clientMetadata.instanceId } : {}),
 });
 
 // The server reads these off the /ws upgrade URL next to wsTicket. Optional on
