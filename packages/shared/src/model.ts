@@ -328,10 +328,20 @@ export function createModelSelection(
   model: string,
   options?: ReadonlyArray<ProviderOptionSelection> | null,
 ): ModelSelection {
-  const selections = options ? cloneSelections(options) : [];
+  const sanitizedModel = sanitizeTerminalValue(model);
+  const rawSelections = options ? cloneSelections(options) : [];
+  const selections = rawSelections
+    .map((selection) => {
+      if (typeof selection.value === "string") {
+        const sanitized = sanitizeTerminalValue(selection.value);
+        return sanitized.length > 0 ? { ...selection, value: sanitized } : null;
+      }
+      return selection;
+    })
+    .filter((selection): selection is ProviderOptionSelection => selection !== null);
   const base: ModelSelection = {
     instanceId,
-    model,
+    model: sanitizedModel,
   };
   return selections.length > 0 ? { ...base, options: selections } : base;
 }

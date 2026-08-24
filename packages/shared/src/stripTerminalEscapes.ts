@@ -17,6 +17,10 @@ const OSC_RE = /\x1b\].*?(?:\x07|\x1b\\)/g;
 const CSI_RE = /\x1b\[[0-9;?]*[ -/]*[@-~]/g;
 const CHARSET_RE = /\x1b[()][A-Za-z0-9]/g;
 const SINGLE_ESC_RE = /\x1b[@-Z\\-_]/g;
+// Trailing incomplete sequences (e.g. truncated "\x1b[34" without terminator) — strip to end of string.
+const TRAILING_CSI_RE = /\x1b\[[0-9;?]*[ -/]*$/g;
+const TRAILING_OSC_RE = /\x1b\].*$/g;
+const TRAILING_ESC_RE = /\x1b$/g;
 
 export function stripTerminalEscapes(input: string): string {
   if (!input || input.indexOf("\x1b") === -1) {
@@ -26,6 +30,9 @@ export function stripTerminalEscapes(input: string): string {
     .replace(OSC_RE, "")
     .replace(CSI_RE, "")
     .replace(CHARSET_RE, "")
+    .replace(TRAILING_CSI_RE, "")
+    .replace(TRAILING_OSC_RE, "")
+    .replace(TRAILING_ESC_RE, "")
     .replace(SINGLE_ESC_RE, "");
 }
 
