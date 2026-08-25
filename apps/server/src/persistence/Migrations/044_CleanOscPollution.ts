@@ -20,7 +20,7 @@ function sanitizeValue(value: unknown): unknown {
   return value;
 }
 
-function needsSanitizeJson(raw: string | null): boolean {
+function needsSanitizeJson(raw: string | null): raw is string {
   if (typeof raw !== "string" || raw.length === 0) return false;
   // Fast check for literal \u001b (6 chars) or raw ESC
   return (
