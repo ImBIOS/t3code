@@ -543,6 +543,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.enableAgentBrowserAccess !== DEFAULT_UNIFIED_SETTINGS.enableAgentBrowserAccess
         ? ["Agent browser access"]
         : []),
+      ...(settings.enableScheduledTasks !== DEFAULT_UNIFIED_SETTINGS.enableScheduledTasks
+        ? ["Scheduled tasks"]
+        : []),
     ],
     [
       isTextGenerationModelDirty,
@@ -553,6 +556,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.browserAutoShowFloatingPreview,
       settings.appearanceContrast,
       settings.enableAgentBrowserAccess,
+      settings.enableScheduledTasks,
       settings.confirmQuit,
       settings.confirmThreadArchive,
       settings.confirmThreadDelete,
@@ -688,6 +692,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       // name, so a user restoring defaults is told the agent regains access
       // rather than discovering it later.
       enableAgentBrowserAccess: DEFAULT_UNIFIED_SETTINGS.enableAgentBrowserAccess,
+      enableScheduledTasks: DEFAULT_UNIFIED_SETTINGS.enableScheduledTasks,
     });
     onRestored?.();
   }, [
