@@ -443,6 +443,80 @@ function isMissingWorktreeStderr(stderr: string): boolean {
   );
 }
 
+// Matches `git checkout` refusing a branch another worktree already has
+// checked out: "fatal: 'main' is already used by worktree at '...'". The
+// branch name and worktree path are safe to surface (both are already known
+// to the client), so extract them for an actionable error instead of the
+// generic "git checkout failed".
+function parseWorktreeInUseFromCheckoutStderr(
+  stderr: string,
+): { branch: string; worktreePath: string } | null {
+  const match = /'([^']+)' is already used by worktree at '([^']+)'/.exec(stderr);
+  const branch = match?.[1]?.trim() ?? "";
+  const worktreePath = match?.[2]?.trim() ?? "";
+  if (branch.length === 0 || worktreePath.length === 0) {
+    return null;
+  }
+  return { branch, worktreePath };
+}
+
+function isCheckoutWouldOverwriteStderr(stderr: string): boolean {
+  return stderr.toLowerCase().includes("would be overwritten by checkout");
+}
+
+function isCheckoutPathspecNotFoundStderr(stderr: string): boolean {
+  const normalized = stderr.toLowerCase();
+  return (
+    normalized.includes("did not match any file") ||
+    (normalized.includes("pathspec") && normalized.includes("did not match"))
+  );
+}
+
+// Bounded file list from a "would be overwritten by checkout" stderr, e.g.
+//   error: Your local changes to the following files would be overwritten by checkout:
+//       package.json
+//   Please commit your changes or stash them before you switch branches.
+function parseCheckoutOverwriteFileList(
+  stderr: string,
+  maxFiles = 5,
+): ReadonlyArray<string> {
+  const files: Array<string> = [];
+  let inList = false;
+  for (const line of stderr.split("\n")) {
+    if (!inList) {
+      if (line.toLowerCase().includes("would be overwritten by checkout")) {
+        inList = true;
+      }
+      continue;
+    }
+    const trimmed = line.trim();
+    if (trimmed.length === 0) {
+      continue;
+    }
+    if (/^please (commit|stash|move)/i.test(trimmed) || trimmed.toLowerCase().startsWith("aborting")) {
+      break;
+    }
+    files.push(trimmed);
+    if (files.length >= maxFiles) {
+      break;
+    }
+  }
+  return files;
+}
+
+// First useful stderr line, stripped of the fatal:/error: prefix and bounded
+// so a checkout failure we don't explicitly categorize is still diagnosable
+// without sending raw process output over the wire.
+function firstNonEmptyStderrLine(stderr: string, maxLength = 300): string | null {
+  for (const line of stderr.split("\n")) {
+    const trimmed = line.trim().replace(/^(fatal|error):\s*/i, "");
+    if (trimmed.length > 0) {
+      return trimmed.slice(0, maxLength);
+    }
+  }
+  return null;
+}
+
 interface Trace2Monitor {
   readonly env: NodeJS.ProcessEnv;
   readonly flush: Effect.Effect<void, never>;
@@ -3145,20 +3219,76 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
             ).pipe(Effect.map((result) => result.exitCode === 0))
           : false;
 
-      const checkoutArgs = localInputExists
-        ? ["checkout", input.refName]
-        : remoteExists && !localTrackingBranch && localTrackedBranchTargetExists
-          ? ["checkout", input.refName]
-          : remoteExists && !localTrackingBranch
-            ? ["checkout", "--track", input.refName]
-            : remoteExists && localTrackingBranch
-              ? ["checkout", localTrackingBranch]
-              : ["checkout", input.refName];
+      // A remote ref whose local counterpart already exists checks out the
+      // local branch (checking out the remote ref itself would detach HEAD).
+      let checkoutBranch = input.refName;
+      if (!localInputExists && remoteExists) {
+        if (localTrackingBranch) {
+          checkoutBranch = localTrackingBranch;
+        } else if (localTrackedBranchCandidate && localTrackedBranchTargetExists) {
+          checkoutBranch = localTrackedBranchCandidate;
+        }
+      }
+      const checkoutArgs =
+        !localInputExists &&
+        remoteExists &&
+        !localTrackingBranch &&
+        !(localTrackedBranchCandidate && localTrackedBranchTargetExists)
+          ? ["checkout", "--track", input.refName]
+          : ["checkout", checkoutBranch];
 
-      yield* executeGit("GitVcsDriver.switchRef.checkout", input.cwd, checkoutArgs, {
-        timeoutMs: 10_000,
-        fallbackErrorDetail: "git checkout failed",
-      });
+      // Stable diagnostics (LC_ALL=C) so the failure mapping below can match
+      // on English git output regardless of the server locale. Non-zero exit
+      // is handled explicitly to turn opaque "git checkout failed" errors
+      // into actionable ones (worktree in use, dirty tree, unknown ref).
+      const checkoutResult = yield* executeGitWithStableDiagnostics(
+        "GitVcsDriver.switchRef.checkout",
+        input.cwd,
+        checkoutArgs,
+        {
+          timeoutMs: 10_000,
+          allowNonZeroExit: true,
+        },
+      );
+      if (checkoutResult.exitCode !== 0) {
+        const stderr = checkoutResult.stderr;
+        const context = {
+          ...gitCommandContext({
+            operation: "GitVcsDriver.switchRef.checkout",
+            cwd: input.cwd,
+            args: checkoutArgs,
+          }),
+          ...(checkoutResult.exitCode === null ? {} : { exitCode: checkoutResult.exitCode }),
+          stdoutLength: checkoutResult.stdout.length,
+          stderrLength: checkoutResult.stderr.length,
+        };
+        const worktreeInUse = parseWorktreeInUseFromCheckoutStderr(stderr);
+        if (worktreeInUse) {
+          return yield* new GitCommandError({
+            ...context,
+            detail: `Branch '${worktreeInUse.branch}' is already checked out in another worktree at '${worktreeInUse.worktreePath}'. Switch to that worktree or check out a different branch.`,
+          });
+        }
+        if (isCheckoutWouldOverwriteStderr(stderr)) {
+          const files = parseCheckoutOverwriteFileList(stderr);
+          const fileHint = files.length > 0 ? ` (${files.join(", ")})` : "";
+          return yield* new GitCommandError({
+            ...context,
+            detail: `Cannot switch to '${input.refName}' because local changes${fileHint} would be overwritten. Commit or stash them first.`,
+          });
+        }
+        if (isCheckoutPathspecNotFoundStderr(stderr)) {
+          return yield* new GitCommandError({
+            ...context,
+            detail: `Branch '${input.refName}' was not found locally or on the remote. Fetch latest refs and try again.`,
+          });
+        }
+        const firstLine = firstNonEmptyStderrLine(stderr);
+        return yield* new GitCommandError({
+          ...context,
+          detail: firstLine ? `git checkout failed: ${firstLine}` : "git checkout failed",
+        });
+      }
 
       const refName = yield* runGitStdout("GitVcsDriver.switchRef.currentBranch", input.cwd, [
         "branch",

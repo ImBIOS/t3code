@@ -1357,6 +1357,78 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
         assert.equal(result.branch, current);
       }),
     );
+
+    it.effect("fails with an actionable error when the branch is checked out in another worktree", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const pathService = yield* Path.Path;
+
+        yield* driver.createRef({ cwd, refName: "feature/busy" });
+        const worktreePath = pathService.join(
+          yield* makeTmpDir("git-vcs-driver-worktrees-"),
+          "busy",
+        );
+        yield* git(cwd, ["worktree", "add", worktreePath, "feature/busy"]);
+
+        const failure = yield* driver.switchRef({ cwd, refName: "feature/busy" }).pipe(
+          Effect.flip,
+        );
+        assert.isTrue(failure instanceof GitCommandError);
+        assert.include(failure.detail, "feature/busy");
+        assert.include(failure.detail, "another worktree");
+        assert.include(failure.detail, worktreePath);
+      }),
+    );
+
+    it.effect("checks out the existing local branch for a remote ref instead of detaching", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const remote = yield* makeTmpDir("git-vcs-driver-remote-");
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* git(remote, ["init", "--bare"]);
+        yield* git(cwd, ["remote", "add", "origin", remote]);
+
+        yield* git(cwd, ["checkout", "-b", "feature/shared"]);
+        yield* writeTextFile(cwd, "shared.txt", "shared\n");
+        yield* git(cwd, ["add", "."]);
+        yield* git(cwd, ["commit", "-m", "shared"]);
+        yield* git(cwd, ["push", "-u", "origin", "feature/shared"]);
+        yield* git(cwd, ["branch", "--unset-upstream", "feature/shared"]);
+        yield* git(cwd, ["checkout", initialBranch]);
+
+        const result = yield* driver.switchRef({ cwd, refName: "origin/feature/shared" });
+        assert.equal(result.refName, "feature/shared");
+        assert.equal(yield* git(cwd, ["branch", "--show-current"]), "feature/shared");
+      }),
+    );
+
+    it.effect("fails with an actionable error when local changes would be overwritten", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+
+        yield* writeTextFile(cwd, "notes.txt", "main\n");
+        yield* git(cwd, ["add", "."]);
+        yield* git(cwd, ["commit", "-m", "add notes"]);
+        yield* git(cwd, ["checkout", "-b", "feature/other"]);
+        yield* writeTextFile(cwd, "notes.txt", "other\n");
+        yield* git(cwd, ["add", "."]);
+        yield* git(cwd, ["commit", "-m", "change notes"]);
+        yield* git(cwd, ["checkout", initialBranch]);
+        yield* writeTextFile(cwd, "notes.txt", "dirty\n");
+
+        const failure = yield* driver.switchRef({ cwd, refName: "feature/other" }).pipe(
+          Effect.flip,
+        );
+        assert.isTrue(failure instanceof GitCommandError);
+        assert.include(failure.detail, "feature/other");
+        assert.include(failure.detail, "notes.txt");
+      }),
+    );
   });
 
   describe("worktree operations", () => {
