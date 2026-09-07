@@ -444,14 +444,17 @@ function isMissingWorktreeStderr(stderr: string): boolean {
 }
 
 // Matches `git checkout` refusing a branch another worktree already has
-// checked out: "fatal: 'main' is already used by worktree at '...'". The
-// branch name and worktree path are safe to surface (both are already known
-// to the client), so extract them for an actionable error instead of the
-// generic "git checkout failed".
+// checked out. Newer gits print "fatal: 'main' is already used by worktree
+// at '...'", older ones print "'main' is already checked out at '...'".
+// The branch name and worktree path are safe to surface (both are already
+// known to the client), so extract them for an actionable error instead of
+// the generic "git checkout failed".
 function parseWorktreeInUseFromCheckoutStderr(
   stderr: string,
 ): { branch: string; worktreePath: string } | null {
-  const match = /'([^']+)' is already used by worktree at '([^']+)'/.exec(stderr);
+  const match =
+    /'([^']+)' is already used by worktree at '([^']+)'/.exec(stderr) ??
+    /'([^']+)' is already checked out at '([^']+)'/.exec(stderr);
   const branch = match?.[1]?.trim() ?? "";
   const worktreePath = match?.[2]?.trim() ?? "";
   if (branch.length === 0 || worktreePath.length === 0) {
@@ -460,8 +463,22 @@ function parseWorktreeInUseFromCheckoutStderr(
   return { branch, worktreePath };
 }
 
+function isWorktreeInUseStderr(stderr: string): boolean {
+  const normalized = stderr.toLowerCase();
+  return (
+    normalized.includes("already used by worktree") ||
+    normalized.includes("already checked out in another worktree") ||
+    normalized.includes("already checked out at")
+  );
+}
+
 function isCheckoutWouldOverwriteStderr(stderr: string): boolean {
-  return stderr.toLowerCase().includes("would be overwritten by checkout");
+  const normalized = stderr.toLowerCase();
+  return (
+    normalized.includes("would be overwritten by checkout") ||
+    normalized.includes("stash them before you switch") ||
+    normalized.includes("please commit your changes or stash")
+  );
 }
 
 function isCheckoutPathspecNotFoundStderr(stderr: string): boolean {
@@ -476,10 +493,7 @@ function isCheckoutPathspecNotFoundStderr(stderr: string): boolean {
 //   error: Your local changes to the following files would be overwritten by checkout:
 //       package.json
 //   Please commit your changes or stash them before you switch branches.
-function parseCheckoutOverwriteFileList(
-  stderr: string,
-  maxFiles = 5,
-): ReadonlyArray<string> {
+function parseCheckoutOverwriteFileList(stderr: string, maxFiles = 5): ReadonlyArray<string> {
   const files: Array<string> = [];
   let inList = false;
   for (const line of stderr.split("\n")) {
@@ -493,7 +507,10 @@ function parseCheckoutOverwriteFileList(
     if (trimmed.length === 0) {
       continue;
     }
-    if (/^please (commit|stash|move)/i.test(trimmed) || trimmed.toLowerCase().startsWith("aborting")) {
+    if (
+      /^please (commit|stash|move)/i.test(trimmed) ||
+      trimmed.toLowerCase().startsWith("aborting")
+    ) {
       break;
     }
     files.push(trimmed);
@@ -3267,6 +3284,12 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           return yield* new GitCommandError({
             ...context,
             detail: `Branch '${worktreeInUse.branch}' is already checked out in another worktree at '${worktreeInUse.worktreePath}'. Switch to that worktree or check out a different branch.`,
+          });
+        }
+        if (isWorktreeInUseStderr(stderr)) {
+          return yield* new GitCommandError({
+            ...context,
+            detail: `Cannot switch to '${input.refName}' because it is already checked out in another worktree. Switch in that worktree or check out a different branch.`,
           });
         }
         if (isCheckoutWouldOverwriteStderr(stderr)) {
