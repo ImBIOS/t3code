@@ -171,6 +171,7 @@ describe("resolveAutoSettlementAt", () => {
 
   it("blocks pins, snooze, pending work, live sessions, and queued starts", () => {
     expect(decide(makeThread({ settledOverride: "active" }))).toBe(false);
+    expect(decide(makeThread({ pinnedAt: "2026-08-20T00:00:00.000Z" }))).toBe(false);
     expect(decide(makeThread({ snoozedUntil: "2026-08-29T00:00:00.000Z" }))).toBe(false);
     expect(decide(makeThread({ hasPendingApprovals: true }))).toBe(false);
     expect(decide(makeThread({ hasPendingUserInput: true }))).toBe(false);
