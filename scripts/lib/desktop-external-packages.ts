@@ -22,6 +22,14 @@ export const DESKTOP_RUNTIME_EXTERNAL_PREFIXES = [
   // at runtime and ships the browser driver alongside; there is nothing to
   // gain from inlining a 10 MB file the code re-reads as text.
   "playwright-core",
+  // dbus-next must stay a real node_modules package. Inlined, the bundler
+  // hoists its `sax` import into the main-process entry chunk, so the lazy
+  // PortalCaptureShortcut/NiriCaptureShortcut chunk ends up with
+  // `require("./main.cjs")`. On Linux Wayland portal sessions that chunk loads
+  // after Electron is ready, the entry re-evaluates top-level `runMain`, and
+  // `protocol.registerSchemesAsPrivileged` throws — every launch exits 1
+  // before a window appears (#11720).
+  "dbus-next",
 ] as const;
 
 export function isDesktopRuntimeExternalDependency(id: string): boolean {
@@ -35,4 +43,44 @@ export function selectDesktopRuntimeExternalDependencies(
   return Object.fromEntries(
     Object.entries(dependencies).filter(([name]) => isDesktopRuntimeExternalDependency(name)),
   );
+}
+
+/**
+ * Scan an emitted `dist-electron` chunk for desktop runtime-external packages
+ * that were inlined.
+ *
+ * Same shape as `findInlinedExternalPackages` in cli-external-packages.ts, but
+ * against the desktop predicate: the artifact build scans `serverDist` with
+ * the CLI list, which does not know `dbus-next`, so an inlined dbus-next
+ * passed packaging silently and broke every Linux Wayland launch (#11720).
+ * `regionCount` and `inlinedPackages` carry the same blind-scan protection.
+ */
+export function findInlinedDesktopExternalPackages(source: string): {
+  readonly regionCount: number;
+  readonly inlined: ReadonlyArray<string>;
+  readonly inlinedPackages: ReadonlyArray<string>;
+} {
+  // Rolldown marks each inlined module with a `//#region <path>` comment.
+  const regionPattern = /\/\/#region\s+(\S+)/g;
+  const packagePattern = /node_modules\/((?:@[^/\s]+\/)?[^/\s]+)\//g;
+
+  let regionCount = 0;
+  const inlined = new Set<string>();
+  const inlinedPackages = new Set<string>();
+  for (const region of source.matchAll(regionPattern)) {
+    regionCount += 1;
+    const regionPath = region[1] ?? "";
+    for (const candidate of regionPath.matchAll(packagePattern)) {
+      const name = candidate[1];
+      if (name === undefined || name === ".pnpm") continue;
+      inlinedPackages.add(name);
+      if (isDesktopRuntimeExternalDependency(name)) inlined.add(name);
+    }
+  }
+
+  return {
+    regionCount,
+    inlined: [...inlined].sort(),
+    inlinedPackages: [...inlinedPackages].sort(),
+  };
 }

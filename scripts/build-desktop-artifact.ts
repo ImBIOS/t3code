@@ -34,7 +34,10 @@ import {
   selectCliRuntimeExternalDependencies,
 } from "./lib/cli-external-packages.ts";
 import { loadRepoEnv } from "./lib/public-config.ts";
-import { selectDesktopRuntimeExternalDependencies } from "./lib/desktop-external-packages.ts";
+import {
+  findInlinedDesktopExternalPackages,
+  selectDesktopRuntimeExternalDependencies,
+} from "./lib/desktop-external-packages.ts";
 import { resolveCatalogDependencies } from "./lib/resolve-catalog.ts";
 
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
@@ -614,6 +617,15 @@ export class InlinedExternalPackageError extends Schema.TaggedError<InlinedExter
 ) {
   override get message(): string {
     return `The server bundle inlined packages that must stay external: ${this.packages.join(", ")}. These are native addons or their loaders; inlined, they resolve prebuilds relative to the bundle and silently lose native acceleration. Check the deps.neverBundle wiring in apps/server/vite.config.ts.`;
+  }
+}
+
+export class DesktopInlinedExternalPackageError extends Schema.TaggedError<DesktopInlinedExternalPackageError>()(
+  "DesktopInlinedExternalPackageError",
+  { packages: Schema.Array(Schema.String) },
+) {
+  override get message(): string {
+    return `The desktop main-process bundle inlined packages that must stay external: ${this.packages.join(", ")}. An inlined dbus-next makes the lazy PortalCaptureShortcut/NiriCaptureShortcut chunk require("./main.cjs"), which re-evaluates top-level runMain after Electron is ready and exits every Linux Wayland launch (#11720). Check the deps.neverBundle wiring in apps/desktop/vite.config.ts and DESKTOP_RUNTIME_EXTERNAL_PREFIXES in scripts/lib/desktop-external-packages.ts.`;
   }
 }
 
@@ -2516,9 +2528,9 @@ function validateBundledClientAssets(clientDir: string) {
 
 // The main-process bundle inlines every JS dependency (see
 // apps/desktop/vite.config.ts), so the packaged app only installs the packages
-// that bundle leaves external: native addons and playwright-core. Everything
-// else already lives inside dist-electron and would only duplicate what the
-// server bundle carries too.
+// that bundle leaves external: native addons, playwright-core, and dbus-next.
+// Everything else already lives inside dist-electron and would only duplicate
+// what the server bundle carries too.
 export function resolveDesktopRuntimeDependencies(
   dependencies: Record<string, string> | undefined,
   catalog: Record<string, string>,
@@ -3506,6 +3518,36 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       return yield* new ExternalizedBundleError({
         sentinel: BUNDLE_SELF_CONTAINED_SENTINEL,
         inlinedPackageCount: inlinedPackages.size,
+      });
+    }
+  }
+
+  // Same assert for the desktop main-process bundle, against the desktop
+  // externals list: the server scan above uses the CLI predicate, which does
+  // not know dbus-next, so an inlined dbus-next passed packaging silently and
+  // broke every Linux Wayland launch (#11720).
+  {
+    const chunkNames = (yield* fs.readDirectory(distDirs.desktopDist)).filter((entry) =>
+      entry.endsWith(".cjs"),
+    );
+    let totalRegions = 0;
+    const inlined = new Set<string>();
+    for (const chunkName of chunkNames) {
+      const source = yield* fs.readFileString(path.join(distDirs.desktopDist, chunkName));
+      const scan = findInlinedDesktopExternalPackages(source);
+      totalRegions += scan.regionCount;
+      for (const name of scan.inlined) inlined.add(name);
+    }
+    if (inlined.size > 0) {
+      return yield* new DesktopInlinedExternalPackageError({
+        packages: [...inlined].sort(),
+      });
+    }
+    // No regions at all means the scan went blind (marker format changed), not
+    // that the bundle is clean.
+    if (totalRegions === 0) {
+      return yield* new DesktopInlinedExternalPackageError({
+        packages: ["<no module regions found; the bundle scan needs updating>"],
       });
     }
   }

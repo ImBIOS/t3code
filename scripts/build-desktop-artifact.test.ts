@@ -397,6 +397,9 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         "@clerk/electron-passkeys": "0.0.3",
         "@crowecawcaw/xa11y": "0.13.0",
         "@napi-rs/keyring": "^1.3.0",
+        // #11720: dbus-next stays external so the lazy portal chunks never
+        // re-require the main-process entry.
+        "dbus-next": "0.10.2",
         "ffi-rs": "1.3.2",
         "playwright-core": "1.60.0",
       },
@@ -739,6 +742,10 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         desktopDependencies: {
           "@napi-rs/keyring": "1.3.0",
           "playwright-core": "1.60.0",
+          // Regression coverage for #11720: dbus-next must stay external (and
+          // therefore staged) so the lazy portal chunks never re-require the
+          // main-process entry.
+          "dbus-next": "0.10.2",
         },
         arch: "arm64",
         fffNodeVersion: "0.9.4",
@@ -749,6 +756,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         "node-pty": "1.1.0",
         "@napi-rs/keyring": "1.3.0",
         "playwright-core": "1.60.0",
+        "dbus-next": "0.10.2",
         "@ff-labs/fff-bin-darwin-arm64": "0.9.4",
       },
     );
