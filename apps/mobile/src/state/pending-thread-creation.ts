@@ -106,6 +106,42 @@ export function isPendingThreadCreationVisible(input: {
   return !input.loadedMessageIds?.includes(input.creationMessageId);
 }
 
+/**
+ * What Stop should do from the thread screen. The preparing window (queued
+ * creation or worktree checkout before the first turn) has no turn to
+ * interrupt: when the creation is still queued locally, Stop cancels it
+ * outright; once delivered, Stop falls through to the normal interrupt path
+ * (best effort — the server may still be checking out the worktree).
+ */
+export type PreparingStopAction =
+  | { readonly kind: "cancel-queued-creation" }
+  | { readonly kind: "interrupt-running-turn" }
+  | { readonly kind: "noop" };
+
+export function resolvePreparingStopAction(input: {
+  /** Null once the server's detail has taken over the pill. */
+  readonly isPreparing: boolean;
+  /** Outcome recorded by the outbox drain; null while still queued. */
+  readonly creationOutcomeKind: "delivered" | "failed" | null;
+  readonly creationMessageId: string | null;
+  /** Currently-delivering outbox message, if any. Never cancel mid-delivery. */
+  readonly dispatchingMessageId: string | null;
+  readonly sessionStatus: string | null;
+}): PreparingStopAction {
+  if (
+    input.isPreparing &&
+    input.creationMessageId !== null &&
+    input.creationOutcomeKind === null &&
+    input.dispatchingMessageId !== input.creationMessageId
+  ) {
+    return { kind: "cancel-queued-creation" };
+  }
+  if (input.sessionStatus === "running" || input.sessionStatus === "starting") {
+    return { kind: "interrupt-running-turn" };
+  }
+  return { kind: "noop" };
+}
+
 export function pendingThreadCreationMessage(
   message: QueuedThreadMessage,
 ): OrchestrationThread["messages"][number] {

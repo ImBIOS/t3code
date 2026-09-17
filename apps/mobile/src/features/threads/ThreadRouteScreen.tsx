@@ -26,7 +26,11 @@ import { Alert, Platform, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useWorkspaceState } from "../../state/workspace";
 import { restoredNewTaskDraftKey } from "../../state/new-task-draft-key";
-import { clearPendingThreadCreationOutcome } from "../../state/pending-thread-creation";
+import {
+  clearPendingThreadCreationOutcome,
+  resolvePreparingStopAction,
+} from "../../state/pending-thread-creation";
+import { removeThreadOutboxMessage } from "../../state/thread-outbox-removal";
 import { recoverFailedThreadDraft } from "../../state/recover-failed-thread-draft";
 import { useEnvironmentQuery } from "../../state/query";
 import { dismissGitActionResult, useGitActionProgress } from "../../state/use-vcs-action-state";
@@ -498,24 +502,104 @@ function ThreadRouteContent(
   const handleOpenConnectionEditor = useCallback(() => {
     void navigation.navigate("Connections");
   }, [navigation]);
+  const [isStoppingThread, setIsStoppingThread] = useState(false);
   const handleStopThread = useCallback(() => {
-    if (
-      !selectedThread ||
-      (selectedThread.session?.status !== "running" &&
-        selectedThread.session?.status !== "starting")
-    ) {
+    const stopAction = resolvePreparingStopAction({
+      isPreparing:
+        selectedThreadCreation !== null && selectedThreadCreation.outcome?.kind !== "failed",
+      creationOutcomeKind:
+        selectedThreadCreation?.outcome?.kind === "delivered"
+          ? "delivered"
+          : selectedThreadCreation?.outcome?.kind === "failed"
+            ? "failed"
+            : null,
+      creationMessageId: selectedThreadCreation
+        ? String(selectedThreadCreation.message.messageId)
+        : null,
+      dispatchingMessageId: composer.dispatchingQueuedMessageId
+        ? String(composer.dispatchingQueuedMessageId)
+        : null,
+      sessionStatus: selectedThread?.session?.status ?? null,
+    });
+    // A still-queued creation has no server turn to interrupt: cancel it
+    // locally with immediate feedback instead of a silent no-op (#12187).
+    if (stopAction.kind === "cancel-queued-creation" && selectedThreadCreation) {
+      const queuedMessage = selectedThreadCreation.message;
+      const threadKey = routeThreadIdentity;
+      setIsStoppingThread(true);
+      void (async () => {
+        try {
+          const removed = await removeThreadOutboxMessage(queuedMessage);
+          if (!removed) {
+            return;
+          }
+          if (threadKey) {
+            clearPendingThreadCreationOutcome(threadKey);
+          }
+          if (navigation.canGoBack()) {
+            navigation.goBack();
+          } else {
+            navigation.dispatch(StackActions.replace("Home"));
+          }
+        } catch (error) {
+          Alert.alert(
+            "Could not cancel task",
+            error instanceof Error ? error.message : String(error),
+          );
+        } finally {
+          setIsStoppingThread(false);
+        }
+      })();
       return;
     }
-    return interruptThreadTurn({
+    if (stopAction.kind !== "interrupt-running-turn") {
+      return;
+    }
+    if (!selectedThread) {
+      return;
+    }
+    const activeSession = selectedThread.session;
+    if (!activeSession) {
+      return;
+    }
+    setIsStoppingThread(true);
+    const interrupt = interruptThreadTurn({
       environmentId: selectedThread.environmentId,
       input: {
         threadId: selectedThread.id,
-        ...(selectedThread.session.activeTurnId
-          ? { turnId: selectedThread.session.activeTurnId }
-          : {}),
+        ...(activeSession.activeTurnId ? { turnId: activeSession.activeTurnId } : {}),
       },
     });
-  }, [interruptThreadTurn, selectedThread]);
+    void interrupt.then((result) => {
+      if (result._tag === "Failure") {
+        setIsStoppingThread(false);
+      }
+    });
+  }, [
+    composer.dispatchingQueuedMessageId,
+    interruptThreadTurn,
+    navigation,
+    routeThreadIdentity,
+    selectedThread,
+    selectedThreadCreation,
+  ]);
+  // Optimistic Stop feedback clears once work actually ends, when switching
+  // threads, or immediately on a failed interrupt above (#12187).
+  const selectedThreadSessionStatus = selectedThread?.session?.status ?? null;
+  const selectedThreadIdentity = selectedThread
+    ? scopedThreadKey(selectedThread.environmentId, selectedThread.id)
+    : null;
+  const previousStopThreadIdentityRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (previousStopThreadIdentityRef.current !== selectedThreadIdentity) {
+      previousStopThreadIdentityRef.current = selectedThreadIdentity;
+      setIsStoppingThread(false);
+      return;
+    }
+    if (selectedThreadSessionStatus !== "running" && selectedThreadSessionStatus !== "starting") {
+      setIsStoppingThread(false);
+    }
+  }, [selectedThreadIdentity, selectedThreadSessionStatus]);
 
   const handleOpenTerminal = useCallback(
     (nextTerminalId?: string | null) => {
@@ -894,6 +978,10 @@ function ThreadRouteContent(
           onRemoveDraftImage={composer.onRemoveDraftImage}
           serverConfig={serverConfig}
           onStopThread={handleStopThread}
+          isStoppingThread={isStoppingThread}
+          isPreparingCreation={
+            selectedThreadCreation !== null && selectedThreadCreation.outcome?.kind !== "failed"
+          }
           onSendMessage={composer.onSendMessage}
           onReconnectEnvironment={handleReconnectEnvironment}
           onUpdateThreadModelSelection={composer.onUpdateModelSelection}

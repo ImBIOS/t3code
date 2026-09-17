@@ -14,6 +14,7 @@ import {
   pendingThreadCreationMessage,
   pendingThreadCreationShell,
   resolvePendingThreadCreation,
+  resolvePreparingStopAction,
   type PendingThreadCreation,
 } from "./pending-thread-creation";
 import type { QueuedThreadMessage } from "./thread-outbox-model";
@@ -259,5 +260,69 @@ describe("pendingThreadCreationMessage", () => {
   // the server and would spin forever on them.
   it("omits the queued attachments rather than passing local draft ids to the feed", () => {
     expect(pendingThreadCreationMessage(creation)).not.toHaveProperty("attachments");
+  });
+});
+
+describe("resolvePreparingStopAction", () => {
+  const creationMessageId = String(creation.messageId);
+
+  it("cancels a still-queued creation during preparing", () => {
+    expect(
+      resolvePreparingStopAction({
+        isPreparing: true,
+        creationOutcomeKind: null,
+        creationMessageId,
+        dispatchingMessageId: null,
+        sessionStatus: null,
+      }),
+    ).toEqual({ kind: "cancel-queued-creation" });
+  });
+
+  it("never cancels mid-delivery; falls through to interrupt when running", () => {
+    expect(
+      resolvePreparingStopAction({
+        isPreparing: true,
+        creationOutcomeKind: null,
+        creationMessageId,
+        dispatchingMessageId: creationMessageId,
+        sessionStatus: "starting",
+      }),
+    ).toEqual({ kind: "interrupt-running-turn" });
+  });
+
+  it("interrupts after delivery while the worktree is still checking out", () => {
+    expect(
+      resolvePreparingStopAction({
+        isPreparing: true,
+        creationOutcomeKind: "delivered",
+        creationMessageId,
+        dispatchingMessageId: null,
+        sessionStatus: "starting",
+      }),
+    ).toEqual({ kind: "interrupt-running-turn" });
+  });
+
+  it("is a noop when preparing is over and nothing is running", () => {
+    expect(
+      resolvePreparingStopAction({
+        isPreparing: false,
+        creationOutcomeKind: "delivered",
+        creationMessageId,
+        dispatchingMessageId: null,
+        sessionStatus: "stopped",
+      }),
+    ).toEqual({ kind: "noop" });
+  });
+
+  it("is a noop for a delivered creation whose session never started", () => {
+    expect(
+      resolvePreparingStopAction({
+        isPreparing: true,
+        creationOutcomeKind: "delivered",
+        creationMessageId,
+        dispatchingMessageId: null,
+        sessionStatus: null,
+      }),
+    ).toEqual({ kind: "noop" });
   });
 });
