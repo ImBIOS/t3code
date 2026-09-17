@@ -8,7 +8,7 @@ import type { EnvironmentMachineKind } from "@t3tools/contracts";
 import type { MenuAction } from "@react-native-menu/menu";
 import { SymbolView } from "../../components/AppSymbol";
 import { memo, useCallback, useMemo, type ComponentProps } from "react";
-import { Platform, Pressable, useWindowDimensions, View } from "react-native";
+import { Alert, Platform, Pressable, useWindowDimensions, View } from "react-native";
 import type { SwipeableMethods } from "react-native-gesture-handler/ReanimatedSwipeable";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import Svg, { Circle, Path } from "react-native-svg";
@@ -18,6 +18,7 @@ import { ControlPillMenu } from "../../components/ControlPill";
 import { EnvironmentMachineSymbol } from "../../components/EnvironmentMachineSymbol";
 import { ProjectFavicon } from "../../components/ProjectFavicon";
 import { cn } from "../../lib/cn";
+import { copyTextWithHaptic } from "../../lib/copyTextWithHaptic";
 import { HOME_HORIZONTAL_INSET } from "../../lib/layoutMetrics";
 import { relativeTime } from "../../lib/time";
 import { themeColorWithAlpha } from "../../lib/mobileTheme";
@@ -27,6 +28,7 @@ import { useThreadPr, type ThreadPrPresentation } from "../../state/use-thread-p
 import type { HomeGroupDisplayAction } from "../home/homeListItems";
 import { ThreadSwipeable } from "../home/thread-swipe-actions";
 import { buildThreadTitleRegenerationMenuItems } from "./thread-title-regeneration-menu";
+import { buildThreadCopyMenuActions, resolveThreadCopyPath } from "./thread-copy-menu";
 import { QueuedMessageIcon } from "./queued-message-icon";
 import { resolveThreadStatus } from "./threadPresentation";
 import { ThreadSearchMatchExcerpt } from "./thread-search-match";
@@ -538,6 +540,21 @@ export const ThreadListRow = memo(function ThreadListRow(props: {
     () => onRegenerateThreadTitle(thread),
     [onRegenerateThreadTitle, thread],
   );
+  const handleCopyPath = useCallback(() => {
+    const path = resolveThreadCopyPath({ worktreePath: thread.worktreePath });
+    if (path === null) {
+      Alert.alert("Could not copy path", "This thread does not have a workspace path.");
+      return;
+    }
+    copyTextWithHaptic(path, { target: "thread path", feedback: "selection" });
+  }, [thread.worktreePath]);
+  const handleCopyBranch = useCallback(() => {
+    if (thread.branch === null) return;
+    copyTextWithHaptic(thread.branch, { target: "thread branch", feedback: "selection" });
+  }, [thread.branch]);
+  const handleCopyThreadId = useCallback(() => {
+    copyTextWithHaptic(thread.id, { target: "thread ID", feedback: "selection" });
+  }, [thread.id]);
   const menuActions = useMemo<MenuAction[]>(
     () => [
       ...(thread.branch
@@ -555,6 +572,7 @@ export const ThreadListRow = memo(function ThreadListRow(props: {
         supported: props.titleRegenerationSupported,
         isRegenerating: thread.titleRegeneration != null,
       }),
+      ...buildThreadCopyMenuActions({ branch: thread.branch }),
       THREAD_ROW_MENU_ACTIONS[1]!,
     ],
     [props.titleRegenerationSupported, thread.branch, thread.titleRegeneration],
@@ -573,9 +591,21 @@ export const ThreadListRow = memo(function ThreadListRow(props: {
       if (nativeEvent.event === "new-thread-on-branch") onNewThreadOnBranch(thread);
       if (nativeEvent.event === "archive") handleArchive();
       if (nativeEvent.event === "regenerate-title") handleRegenerateTitle();
+      if (nativeEvent.event === "copy-path") handleCopyPath();
+      if (nativeEvent.event === "copy-branch") handleCopyBranch();
+      if (nativeEvent.event === "copy-thread-id") handleCopyThreadId();
       if (nativeEvent.event === "delete") handleDelete();
     },
-    [handleArchive, handleDelete, handleRegenerateTitle, onNewThreadOnBranch, thread],
+    [
+      handleArchive,
+      handleCopyBranch,
+      handleCopyPath,
+      handleCopyThreadId,
+      handleDelete,
+      handleRegenerateTitle,
+      onNewThreadOnBranch,
+      thread,
+    ],
   );
 
   const statusPill = effectiveStatus ? (

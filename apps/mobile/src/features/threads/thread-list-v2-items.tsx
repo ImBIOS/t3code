@@ -23,12 +23,14 @@ import { ProjectFavicon } from "../../components/ProjectFavicon";
 import { ProviderInstanceIcon } from "../../components/ProviderIcon";
 import type { ThreadRowProviderInstance } from "./thread-provider-instance";
 import { cn } from "../../lib/cn";
+import { copyTextWithHaptic } from "../../lib/copyTextWithHaptic";
 import { relativeTime } from "../../lib/time";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import type { PendingNewTask } from "../../state/use-pending-new-tasks";
 import { useThreadPr } from "../../state/use-thread-pr";
 import { ThreadSwipeable } from "../home/thread-swipe-actions";
 import { buildThreadTitleRegenerationMenuItems } from "./thread-title-regeneration-menu";
+import { buildThreadCopyMenuActions, resolveThreadCopyPath } from "./thread-copy-menu";
 import {
   resolveThreadListV2SnoozeMenuSelection,
   resolveThreadListV2SnoozeGateExpiryMs,
@@ -482,6 +484,24 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   const handleMoveUp = useCallback(() => onMoveThread?.(thread, "up"), [onMoveThread, thread]);
   const handleMoveDown = useCallback(() => onMoveThread?.(thread, "down"), [onMoveThread, thread]);
   const handleArchive = useCallback(() => onArchiveThread(thread), [onArchiveThread, thread]);
+  const handleCopyPath = useCallback(() => {
+    const path = resolveThreadCopyPath({
+      worktreePath: thread.worktreePath,
+      projectWorkspaceRoot: props.project?.workspaceRoot ?? null,
+    });
+    if (path === null) {
+      Alert.alert("Could not copy path", "This thread does not have a workspace path.");
+      return;
+    }
+    copyTextWithHaptic(path, { target: "thread path", feedback: "selection" });
+  }, [props.project?.workspaceRoot, thread.worktreePath]);
+  const handleCopyBranch = useCallback(() => {
+    if (thread.branch === null) return;
+    copyTextWithHaptic(thread.branch, { target: "thread branch", feedback: "selection" });
+  }, [thread.branch]);
+  const handleCopyThreadId = useCallback(() => {
+    copyTextWithHaptic(thread.id, { target: "thread ID", feedback: "selection" });
+  }, [thread.id]);
 
   // Swipe: the v2 primary action is the lifecycle transition. Un-settling a
   // settled row keeps it active until new activity clears the user override.
@@ -563,6 +583,10 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       }),
     [props.titleRegenerationSupported, thread.titleRegeneration],
   );
+  const copyMenuActions = useMemo<MenuAction[]>(
+    () => buildThreadCopyMenuActions({ branch: thread.branch }),
+    [thread.branch],
+  );
   const snoozableCardMenuActions = useMemo<MenuAction[]>(
     () => [
       { id: "settle", title: "Settle", image: "checkmark" },
@@ -574,18 +598,20 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       },
       ...arrangementMenuItems,
       ...titleRegenerationMenuItems,
+      ...copyMenuActions,
       { id: "delete", title: "Delete", image: "trash", attributes: { destructive: true } },
     ],
-    [arrangementMenuItems, snoozePresetActions, titleRegenerationMenuItems],
+    [arrangementMenuItems, copyMenuActions, snoozePresetActions, titleRegenerationMenuItems],
   );
   const cardMenuActions = useMemo<MenuAction[]>(
     () => [
       CARD_MENU_ACTIONS[0]!,
       ...arrangementMenuItems,
       ...titleRegenerationMenuItems,
+      ...copyMenuActions,
       ...CARD_MENU_ACTIONS.slice(1),
     ],
-    [arrangementMenuItems, titleRegenerationMenuItems],
+    [arrangementMenuItems, copyMenuActions, titleRegenerationMenuItems],
   );
   const slimMenuActions = useMemo<MenuAction[]>(
     () => [
@@ -594,22 +620,29 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         (action) => action.id !== "move-up" && action.id !== "move-down",
       ),
       ...titleRegenerationMenuItems,
+      ...copyMenuActions,
       SLIM_MENU_ACTIONS[1]!,
     ],
-    [arrangementMenuItems, titleRegenerationMenuItems],
+    [arrangementMenuItems, copyMenuActions, titleRegenerationMenuItems],
   );
   const snoozedMenuActions = useMemo<MenuAction[]>(
-    () => [SNOOZED_MENU_ACTIONS[0]!, ...titleRegenerationMenuItems, SNOOZED_MENU_ACTIONS[1]!],
-    [titleRegenerationMenuItems],
+    () => [
+      SNOOZED_MENU_ACTIONS[0]!,
+      ...titleRegenerationMenuItems,
+      ...copyMenuActions,
+      SNOOZED_MENU_ACTIONS[1]!,
+    ],
+    [copyMenuActions, titleRegenerationMenuItems],
   );
   const legacyMenuActions = useMemo<MenuAction[]>(
     () => [
       LEGACY_MENU_ACTIONS[0]!,
       ...arrangementMenuItems,
       ...titleRegenerationMenuItems,
+      ...copyMenuActions,
       LEGACY_MENU_ACTIONS[1]!,
     ],
-    [arrangementMenuItems, titleRegenerationMenuItems],
+    [arrangementMenuItems, copyMenuActions, titleRegenerationMenuItems],
   );
   const handleMenuAction = useCallback(
     ({ nativeEvent }: { readonly nativeEvent: { readonly event: string } }) => {
@@ -624,6 +657,9 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       if (nativeEvent.event === "move-down") handleMoveDown();
       if (nativeEvent.event === "archive") handleArchive();
       if (nativeEvent.event === "regenerate-title") handleRegenerateTitle();
+      if (nativeEvent.event === "copy-path") handleCopyPath();
+      if (nativeEvent.event === "copy-branch") handleCopyBranch();
+      if (nativeEvent.event === "copy-thread-id") handleCopyThreadId();
       if (nativeEvent.event === "delete") handleDelete();
       const snoozeSelection = resolveThreadListV2SnoozeMenuSelection({
         event: nativeEvent.event,
@@ -640,6 +676,9 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       onNewThreadOnBranch,
       thread,
       handleArchive,
+      handleCopyBranch,
+      handleCopyPath,
+      handleCopyThreadId,
       handleDelete,
       handleRegenerateTitle,
       handleMoveDown,
