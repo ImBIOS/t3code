@@ -55,6 +55,7 @@ vi.mock("../editorPreferences", () => ({
 vi.mock("~/lib/openPullRequestLink", () => ({
   findProjectOnChangeRequestHost: () => undefined,
   parseChangeRequestUrl: () => null,
+  resolvePullRequestPreviewTarget: () => null,
   useOpenChangeRequestLink: () => vi.fn(),
 }));
 
@@ -691,6 +692,28 @@ describe("ChatMarkdown artifact-template cards", () => {
 
     expect(html.match(/::artifact-template/g)).toHaveLength(2);
     expect(html).not.toContain("chat-markdown-artifact-template");
+  });
+});
+
+describe("ChatMarkdown heading levels", () => {
+  it("exposes headings below the host heading without changing their tags", () => {
+    const html = renderToStaticMarkup(
+      <ChatMarkdown
+        cwd="/tmp/project"
+        text={"# Top\n\n## Section\n\n###### Fine print"}
+        headingLevelOffset={3}
+      />,
+    );
+
+    expect(html).toContain('<h1 aria-level="4">Top</h1>');
+    expect(html).toContain('<h2 aria-level="5">Section</h2>');
+    expect(html).toContain('<h6 aria-level="6">Fine print</h6>');
+  });
+
+  it("leaves heading levels alone when the markdown is not nested", () => {
+    const html = renderToStaticMarkup(<ChatMarkdown cwd="/tmp/project" text="# Top" />);
+
+    expect(html).toContain("<h1>Top</h1>");
   });
 });
 
