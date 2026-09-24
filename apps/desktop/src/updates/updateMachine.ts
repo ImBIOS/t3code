@@ -19,11 +19,14 @@ export function createInitialDesktopUpdateState(
   currentVersion: string,
   runtimeInfo: DesktopRuntimeInfo,
   channel: DesktopUpdateChannel,
+  forkhub?: { owner: string | null; repo: DesktopUpdateState["forkhubRepo"] },
 ): DesktopUpdateState {
   return {
     enabled: false,
     status: "disabled",
     channel,
+    forkhubOwner: forkhub?.owner ?? null,
+    forkhubRepo: forkhub?.repo ?? null,
     currentVersion,
     hostArch: runtimeInfo.hostArch,
     appArch: runtimeInfo.appArch,

@@ -19,6 +19,8 @@ const baseState: DesktopUpdateState = {
   enabled: true,
   status: "idle",
   channel: "latest",
+  forkhubOwner: null,
+  forkhubRepo: null,
   currentVersion: "1.0.0",
   hostArch: "x64",
   appArch: "x64",
@@ -278,7 +280,7 @@ describe("desktop update UI helpers", () => {
         downloadedVersion: "1.1.0",
       }),
     ).toBe(
-      "Install update 1.1.0 and restart T3 Code?\n\nAny running tasks will be interrupted. Make sure you're ready before continuing.",
+      "Install update 1.1.0 and restart T3 Code?\n\nAny running tasks will be interrupted. Make sure you're ready before continuing.\n\nAfter restarting, use Update all to bring your connected T3 Code servers to the same version.",
     );
   });
 });

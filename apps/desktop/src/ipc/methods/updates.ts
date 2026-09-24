@@ -1,4 +1,5 @@
 import {
+  DesktopForkHubRepoSchema,
   DesktopUpdateActionResultSchema,
   DesktopUpdateChannelSchema,
   DesktopUpdateCheckResultSchema,
@@ -28,6 +29,19 @@ export const setUpdateChannel = DesktopIpc.makeIpcMethod({
   handler: Effect.fn("desktop.ipc.updates.setChannel")(function* (channel) {
     const updates = yield* DesktopUpdates.DesktopUpdates;
     return yield* updates.setChannel(channel);
+  }),
+});
+
+export const setForkHubOwner = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.UPDATE_SET_FORKHUB_OWNER_CHANNEL,
+  payload: Schema.Struct({
+    owner: Schema.String,
+    repo: Schema.optional(DesktopForkHubRepoSchema),
+  }),
+  result: DesktopUpdateStateSchema,
+  handler: Effect.fn("desktop.ipc.updates.setForkHubOwner")(function* (input) {
+    const updates = yield* DesktopUpdates.DesktopUpdates;
+    return yield* updates.setForkHubOwner(input);
   }),
 });
 

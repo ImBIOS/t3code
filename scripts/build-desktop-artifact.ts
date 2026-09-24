@@ -2535,7 +2535,7 @@ export function resolveDesktopRuntimeDependencies(
 }
 
 export const resolveGitHubPublishConfig = Effect.fn("resolveGitHubPublishConfig")(function* (
-  updateChannel: "latest" | "nightly",
+  updateChannel: "latest" | "nightly" | "forkhub",
 ) {
   const env = yield* Config.all({
     updateRepository: Config.String("T3CODE_DESKTOP_UPDATE_REPOSITORY").pipe(Config.option),
@@ -2612,7 +2612,14 @@ export function resolvePackageManagerUserAgent(packageManager: string): string {
   return `${trimmed.slice(0, versionSeparator)}/${trimmed.slice(versionSeparator + 1)}`;
 }
 
+export function isForkHubDesktopBuild(): boolean {
+  return process.env.T3CODE_FORKHUB_BUILD?.trim() === "1";
+}
+
 export function resolveDesktopProductName(version: string): string {
+  // ForkHub builds install side by side with upstream under their own name
+  // so a patched install is never mistaken for a stock one.
+  if (isForkHubDesktopBuild()) return "T3 Code x ForkHub";
   return resolveDesktopUpdateChannel(version) === "nightly"
     ? "T3 Code (Nightly)"
     : (desktopPackageJson.productName ?? "T3 Code");

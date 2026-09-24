@@ -43,6 +43,8 @@ function downloadedState(overrides: Partial<DesktopUpdateState> = {}): DesktopUp
     enabled: true,
     status: "downloaded",
     channel: "latest",
+    forkhubOwner: null,
+    forkhubRepo: null,
     currentVersion: "0.0.29",
     hostArch: "arm64",
     appArch: "arm64",
@@ -92,6 +94,22 @@ describe("showDesktopUpdateDownloadedToast", () => {
     await vi.waitFor(() => {
       expect(openExternal).toHaveBeenCalledWith(
         "https://github.com/pingdotgg/t3code/releases/tag/v0.0.30",
+      );
+    });
+  });
+
+  it("links ForkHub installs at the channel owner's releases", async () => {
+    const openExternal = vi.fn().mockResolvedValue(true);
+
+    showDesktopUpdateDownloadedToast(
+      { openExternal },
+      downloadedState({ channel: "forkhub", forkhubOwner: "ImBIOS", forkhubRepo: ".forkhub" }),
+    );
+    findReleaseNotesLink(getDescription())?.props.onClick?.();
+
+    await vi.waitFor(() => {
+      expect(openExternal).toHaveBeenCalledWith(
+        "https://github.com/ImBIOS/.forkhub/releases/tag/v0.0.30",
       );
     });
   });

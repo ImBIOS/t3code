@@ -56,6 +56,12 @@ import {
   isDesktopUpdateButtonDisabled,
   resolveDesktopUpdateButtonAction,
 } from "../../components/desktopUpdate.logic";
+import {
+  checkForkHubOwner,
+  forkHubRepoWebUrl,
+  normalizeForkHubOwner,
+  type ForkHubOwnerCheck,
+} from "../../components/forkHub.logic";
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { TraitsPicker } from "../chat/TraitsPicker";
 import {
@@ -269,14 +275,26 @@ function AboutVersionTitle() {
   );
 }
 
+type ForkHubCheckStatus =
+  | { status: "idle" }
+  | { status: "checking" }
+  | { status: "valid"; check: ForkHubOwnerCheck }
+  | { status: "invalid"; message: string };
+
 function AboutVersionSection() {
   const updateState = useDesktopUpdateState();
   const [isChangingUpdateChannel, setIsChangingUpdateChannel] = useState(false);
   const [isUpdateActionPending, setIsUpdateActionPending] = useState(false);
+  const [forkhubOwnerInput, setForkhubOwnerInput] = useState<string | null>(null);
+  const [forkhubCheck, setForkhubCheck] = useState<ForkHubCheckStatus>({ status: "idle" });
 
   const hasDesktopBridge = typeof window !== "undefined" && Boolean(window.desktopBridge);
   const selectedUpdateChannel = updateState?.channel ?? "latest";
   const selectedHostedAppChannel = hasDesktopBridge ? null : HOSTED_APP_CHANNEL;
+  const storedForkhubOwner = updateState?.forkhubOwner ?? null;
+  const storedForkhubRepo = updateState?.forkhubRepo ?? null;
+  const forkhubOwnerValue = forkhubOwnerInput ?? storedForkhubOwner ?? "";
+  const isCheckingForkhubOwner = forkhubCheck.status === "checking";
 
   const handleUpdateChannelChange = useCallback(
     (channel: DesktopUpdateChannel) => {
@@ -307,6 +325,41 @@ function AboutVersionSection() {
     },
     [selectedUpdateChannel],
   );
+
+  const handleForkHubCheck = useCallback(async () => {
+    const bridge = window.desktopBridge;
+    if (!bridge || typeof bridge.setForkHubOwner !== "function") return;
+    const typed = forkhubOwnerValue.trim();
+    if (!normalizeForkHubOwner(typed)) {
+      setForkhubCheck({
+        status: "invalid",
+        message: `"${typed}" is not a valid GitHub profile or org name.`,
+      });
+      return;
+    }
+    setForkhubCheck({ status: "checking" });
+    try {
+      const check = await checkForkHubOwner(typed);
+      const state = await bridge.setForkHubOwner({ owner: check.owner, repo: check.repo });
+      if (state.channel !== "forkhub") {
+        await bridge.setUpdateChannel("forkhub");
+      }
+      setForkhubOwnerInput(null);
+      setForkhubCheck({ status: "valid", check });
+      toastManager.add(
+        stackedThreadToast({
+          type: "success",
+          title: "ForkHub channel connected",
+          description: `Updating from ${check.owner}/${check.repo} releases.`,
+        }),
+      );
+    } catch (error) {
+      setForkhubCheck({
+        status: "invalid",
+        message: error instanceof Error ? error.message : "ForkHub check failed.",
+      });
+    }
+  }, [forkhubOwnerValue]);
 
   const handleButtonClick = useCallback(async () => {
     const bridge = window.desktopBridge;
@@ -437,37 +490,106 @@ function AboutVersionSection() {
         }
       />
       {hasDesktopBridge ? (
-        <SettingsRow
-          title="Update track"
-          description="Use stable releases or nightly builds. Switch back anytime."
-          control={
-            <Select
-              value={selectedUpdateChannel}
-              onValueChange={(value) => {
-                handleUpdateChannelChange(value as DesktopUpdateChannel);
-              }}
-            >
-              <SelectTrigger
-                size="sm"
-                className="w-full sm:w-40"
-                aria-label="Update track"
-                disabled={isChangingUpdateChannel}
+        <>
+          <SettingsRow
+            title="Update track"
+            description="Use stable releases, nightly builds, or a ForkHub channel. Switch back anytime."
+            control={
+              <Select
+                value={selectedUpdateChannel}
+                onValueChange={(value) => {
+                  handleUpdateChannelChange(value as DesktopUpdateChannel);
+                }}
               >
-                <SelectValue>
-                  {selectedUpdateChannel === "nightly" ? "Nightly" : "Stable"}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectPopup align="end" alignItemWithTrigger={false}>
-                <SelectItem hideIndicator value="latest">
-                  Stable
-                </SelectItem>
-                <SelectItem hideIndicator value="nightly">
-                  Nightly
-                </SelectItem>
-              </SelectPopup>
-            </Select>
-          }
-        />
+                <SelectTrigger
+                  size="sm"
+                  className="w-full sm:w-40"
+                  aria-label="Update track"
+                  disabled={isChangingUpdateChannel}
+                >
+                  <SelectValue>
+                    {selectedUpdateChannel === "nightly"
+                      ? "Nightly"
+                      : selectedUpdateChannel === "forkhub"
+                        ? "ForkHub"
+                        : "Stable"}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectPopup align="end" alignItemWithTrigger={false}>
+                  <SelectItem hideIndicator value="latest">
+                    Stable
+                  </SelectItem>
+                  <SelectItem hideIndicator value="nightly">
+                    Nightly
+                  </SelectItem>
+                  <SelectItem hideIndicator value="forkhub">
+                    ForkHub
+                  </SelectItem>
+                </SelectPopup>
+              </Select>
+            }
+          />
+          <SettingsRow
+            title="ForkHub channel"
+            description={
+              storedForkhubOwner
+                ? `Polling ${storedForkhubOwner}/${storedForkhubRepo ?? ".forkhub"} releases.`
+                : "Profile or org whose .forkhub releases this app updates from."
+            }
+            control={
+              <div className="flex w-full flex-col gap-2 sm:w-auto sm:min-w-64">
+                <div className="flex gap-2">
+                  <Input
+                    value={forkhubOwnerValue}
+                    onChange={(event) => {
+                      setForkhubOwnerInput(event.target.value);
+                      setForkhubCheck({ status: "idle" });
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") void handleForkHubCheck();
+                    }}
+                    placeholder="ImBIOS"
+                    aria-label="ForkHub profile or org"
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={isCheckingForkhubOwner || forkhubOwnerValue.trim().length === 0}
+                    onClick={() => void handleForkHubCheck()}
+                  >
+                    {isCheckingForkhubOwner ? "Checking…" : "Check"}
+                  </Button>
+                </div>
+                {forkhubCheck.status === "valid" ? (
+                  <p className="text-xs text-muted-foreground">
+                    {forkhubCheck.check.owner}/{forkhubCheck.check.repo} has ForkHub releases
+                    {forkhubCheck.check.latestTag
+                      ? ` (latest ${forkhubCheck.check.latestTag})`
+                      : ""}
+                    .{" "}
+                    <a
+                      className="underline decoration-dotted underline-offset-4"
+                      href={forkHubRepoWebUrl(
+                        forkhubCheck.check.owner,
+                        forkhubCheck.check.repo,
+                      )}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      View releases
+                    </a>
+                  </p>
+                ) : forkhubCheck.status === "invalid" ? (
+                  <p className="text-xs text-destructive" role="alert">
+                    {forkhubCheck.message}
+                  </p>
+                ) : null}
+              </div>
+            }
+          />
+        </>
       ) : selectedHostedAppChannel ? (
         <SettingsRow
           title="Update track"

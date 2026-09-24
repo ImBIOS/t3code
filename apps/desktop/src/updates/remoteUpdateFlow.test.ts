@@ -16,6 +16,8 @@ function makeState(overrides: Partial<DesktopUpdateState> = {}): DesktopUpdateSt
     enabled: true,
     status: "idle",
     channel: "latest",
+    forkhubOwner: null,
+    forkhubRepo: null,
     currentVersion: "1.2.3",
     hostArch: "arm64",
     appArch: "arm64",

@@ -1,5 +1,6 @@
 import {
   DesktopUpdateChannelSchema,
+  type DesktopForkHubRepo,
   type DesktopRuntimeInfo,
   type DesktopUpdateActionResult,
   type DesktopUpdateChannel,
@@ -32,7 +33,11 @@ import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as IpcChannels from "../ipc/channels.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import { normalizeDesktopUpdateReleaseNotes } from "./releaseNotes.ts";
-import { resolveDefaultDesktopUpdateChannel } from "./updateChannels.ts";
+import {
+  isVersionAllowedOnUpdateChannel,
+  normalizeForkHubOwner,
+  resolveForkHubFeedConfig,
+} from "./updateChannels.ts";
 import {
   createInitialDesktopUpdateState,
   reduceDesktopUpdateStateOnCheckFailure,
@@ -180,6 +185,10 @@ export class DesktopUpdates extends Context.Service<
     readonly setChannel: (
       channel: DesktopUpdateChannel,
     ) => Effect.Effect<DesktopUpdateState, DesktopUpdateSetChannelError>;
+    readonly setForkHubOwner: (input: {
+      readonly owner: string;
+      readonly repo?: DesktopForkHubRepo | undefined;
+    }) => Effect.Effect<DesktopUpdateState, DesktopUpdateSetChannelError>;
     readonly check: (reason: string) => Effect.Effect<DesktopUpdateCheckResult>;
     readonly download: Effect.Effect<DesktopUpdateActionResult>;
     readonly install: Effect.Effect<DesktopUpdateActionResult>;
@@ -214,9 +223,14 @@ function createBaseUpdateState(
   channel: DesktopUpdateChannel,
   enabled: boolean,
   environment: DesktopEnvironment.DesktopEnvironment["Service"],
+  forkhub?: { owner: string; repo: DesktopForkHubRepo },
 ): DesktopUpdateState {
+  const owner = forkhub ? (normalizeForkHubOwner(forkhub.owner) ?? null) : null;
   return {
-    ...createInitialDesktopUpdateState(environment.appVersion, environment.runtimeInfo, channel),
+    ...createInitialDesktopUpdateState(environment.appVersion, environment.runtimeInfo, channel, {
+      owner,
+      repo: forkhub?.repo ?? null,
+    }),
     enabled,
     status: enabled ? "idle" : "disabled",
   };
@@ -292,6 +306,10 @@ export const make = Effect.gen(function* () {
       environment.appVersion,
       environment.runtimeInfo,
       environment.defaultDesktopSettings.updateChannel,
+      {
+        owner: normalizeForkHubOwner(environment.defaultDesktopSettings.forkhubOwner),
+        repo: environment.defaultDesktopSettings.forkhubRepo,
+      },
     ),
   );
 
@@ -337,16 +355,25 @@ export const make = Effect.gen(function* () {
 
   const resolveDisabledReason = Effect.gen(function* () {
     const hasFeedConfig = yield* hasUpdateFeedConfig;
-    return Option.fromNullishOr(
-      getAutoUpdateDisabledReason({
-        isDevelopment: environment.isDevelopment,
-        isPackaged: environment.isPackaged,
-        platform: environment.platform,
-        appImage: Option.getOrUndefined(config.appImagePath),
-        disabledByEnv: config.disableAutoUpdate,
-        hasUpdateFeedConfig: hasFeedConfig,
-      }),
-    );
+    const baseReason = getAutoUpdateDisabledReason({
+      isDevelopment: environment.isDevelopment,
+      isPackaged: environment.isPackaged,
+      platform: environment.platform,
+      appImage: Option.getOrUndefined(config.appImagePath),
+      disabledByEnv: config.disableAutoUpdate,
+      hasUpdateFeedConfig: hasFeedConfig,
+    });
+    if (baseReason !== null) return Option.some(baseReason);
+    // ForkHub without an owner has no feed to poll: the renderer collects
+    // the profile/org name and validates it against that account's
+    // `.forkhub` releases before the channel can be used.
+    const settings = yield* desktopSettings.get;
+    if (settings.updateChannel === "forkhub" && normalizeForkHubOwner(settings.forkhubOwner) === null) {
+      return Option.some(
+        "ForkHub updates need a profile or org name. Set one under Settings → Version → ForkHub.",
+      );
+    }
+    return Option.none<string>();
   });
 
   const activeUpdateAction = Ref.get(activeUpdateActionRef);
@@ -374,8 +401,37 @@ export const make = Effect.gen(function* () {
 
   const applyAutoUpdaterChannel = Effect.fn("desktop.updates.applyAutoUpdaterChannel")(function* (
     channel: DesktopUpdateChannel,
+    forkhub?: { owner: string; repo: DesktopForkHubRepo },
   ) {
     yield* Effect.annotateCurrentSpan({ channel });
+    if (channel === "forkhub") {
+      // ForkHub tracks release builds published to another account's
+      // `.forkhub` repo. The feed repo is dynamic (it follows the stored
+      // owner), so it is pointed at runtime instead of build time.
+      const feed = forkhub ? resolveForkHubFeedConfig(forkhub) : null;
+      if (!feed) {
+        yield* logUpdaterWarning("forkhub channel selected without an owner; feed unchanged", {
+          channel,
+        });
+        return;
+      }
+      yield* electronUpdater.setFeedURL(feed);
+      // ForkHub publishes release builds, so poll the stable manifests
+      // in that repo rather than a prerelease channel.
+      yield* electronUpdater.setChannel("latest");
+      yield* electronUpdater.setAllowPrerelease(false);
+      yield* electronUpdater.setAllowDowngrade(false);
+      yield* electronUpdater.setFullChangelog(false);
+      yield* logUpdaterInfo("using update channel", {
+        channel,
+        forkhubOwner: feed.owner,
+        forkhubRepo: feed.repo,
+        allowPrerelease: false,
+        allowDowngrade: false,
+        fullChangelog: false,
+      });
+      return;
+    }
     const allowsPrerelease = channel === "nightly";
     yield* electronUpdater.setChannel(channel);
     yield* electronUpdater.setAllowPrerelease(allowsPrerelease);
@@ -696,7 +752,7 @@ export const make = Effect.gen(function* () {
       Effect.flatMap(
         Effect.fn("desktop.updates.applyUpdateAvailable")(function* (info) {
           const state = yield* Ref.get(updateStateRef);
-          if (resolveDefaultDesktopUpdateChannel(info.version) !== state.channel) {
+          if (!isVersionAllowedOnUpdateChannel(info.version, state.channel)) {
             yield* logUpdaterInfo("ignoring update that does not match selected channel", {
               version: info.version,
               channel: state.channel,
@@ -879,7 +935,12 @@ export const make = Effect.gen(function* () {
 
       const settings = yield* desktopSettings.get;
       const enabled = yield* shouldEnableAutoUpdates;
-      yield* setState(createBaseUpdateState(settings.updateChannel, enabled, environment));
+      yield* setState(
+        createBaseUpdateState(settings.updateChannel, enabled, environment, {
+          owner: settings.forkhubOwner,
+          repo: settings.forkhubRepo,
+        }),
+      );
       if (!enabled) {
         return;
       }
@@ -887,7 +948,10 @@ export const make = Effect.gen(function* () {
 
       yield* electronUpdater.setAutoDownload(false);
       yield* electronUpdater.setAutoInstallOnAppQuit(false);
-      yield* applyAutoUpdaterChannel(settings.updateChannel);
+      yield* applyAutoUpdaterChannel(settings.updateChannel, {
+        owner: settings.forkhubOwner,
+        repo: settings.forkhubRepo,
+      });
       yield* electronUpdater.setDisableDifferentialDownload(
         isArm64HostRunningIntelBuild(environment.runtimeInfo),
       );
@@ -940,6 +1004,22 @@ export const make = Effect.gen(function* () {
         if (nextChannel === state.channel) {
           return state;
         }
+        // ForkHub without a validated owner has no feed to poll.
+        if (nextChannel === "forkhub") {
+          const settings = yield* desktopSettings.get;
+          if (normalizeForkHubOwner(settings.forkhubOwner) === null) {
+            return yield* new DesktopUpdateChannelPersistenceError({
+              channel: nextChannel,
+              cause: new DesktopAppSettings.DesktopSettingsWriteError({
+                operation: "encode-document",
+                path: "desktop-settings.json",
+                cause: new Error(
+                  "Set a ForkHub profile or org first: the updater needs to know whose `.forkhub` releases to poll.",
+                ),
+              }),
+            });
+          }
+        }
 
         yield* desktopSettings
           .setUpdateChannel(nextChannel)
@@ -949,14 +1029,23 @@ export const make = Effect.gen(function* () {
             ),
           );
 
+        const settings = yield* desktopSettings.get;
         const enabled = yield* shouldEnableAutoUpdates;
-        yield* setState(createBaseUpdateState(nextChannel, enabled, environment));
+        yield* setState(
+          createBaseUpdateState(nextChannel, enabled, environment, {
+            owner: settings.forkhubOwner,
+            repo: settings.forkhubRepo,
+          }),
+        );
 
         if (!enabled || !(yield* Ref.get(updaterConfiguredRef))) {
           return yield* Ref.get(updateStateRef);
         }
 
-        yield* applyAutoUpdaterChannel(nextChannel);
+        yield* applyAutoUpdaterChannel(nextChannel, {
+          owner: settings.forkhubOwner,
+          repo: settings.forkhubRepo,
+        });
         const allowDowngrade = yield* electronUpdater.allowDowngrade;
         yield* electronUpdater.setAllowDowngrade(true);
         yield* checkForUpdates("channel-change", "held").pipe(
@@ -964,6 +1053,51 @@ export const make = Effect.gen(function* () {
         );
         return yield* Ref.get(updateStateRef);
       }).pipe(Effect.ensuring(finishUpdateAction("channel")));
+    }),
+    setForkHubOwner: Effect.fn("desktop.updates.setForkHubOwner")(function* (input: {
+      readonly owner: string;
+      readonly repo?: DesktopForkHubRepo | undefined;
+    }) {
+      const owner = normalizeForkHubOwner(input.owner);
+      if (!owner) {
+        return yield* new DesktopUpdateChannelPersistenceError({
+          channel: "forkhub",
+          cause: new DesktopAppSettings.DesktopSettingsWriteError({
+            operation: "encode-document",
+            path: "desktop-settings.json",
+            cause: new Error(
+              `Not a valid GitHub profile or org name: ${JSON.stringify(input.owner)}.`,
+            ),
+          }),
+        });
+      }
+      const repo: DesktopForkHubRepo = input.repo ?? ".forkhub";
+
+      return yield* Effect.gen(function* () {
+        yield* desktopSettings.setForkHubOwner({ owner, repo }).pipe(
+          Effect.mapError(
+            (cause) => new DesktopUpdateChannelPersistenceError({ channel: "forkhub", cause }),
+          ),
+        );
+        const settings = yield* desktopSettings.get;
+        const state = yield* Ref.get(updateStateRef);
+        const nextState: DesktopUpdateState = {
+          ...state,
+          forkhubOwner: owner,
+          forkhubRepo: repo,
+        };
+        yield* setState(nextState);
+        // If already on the ForkHub track, repoint the feed immediately so
+        // the next check polls the new account without a restart. Resetting
+        // to a base state drops any staged download: it came from another
+        // account's feed and must not install under the new one.
+        if (settings.updateChannel === "forkhub" && (yield* Ref.get(updaterConfiguredRef))) {
+          yield* applyAutoUpdaterChannel("forkhub", { owner, repo });
+          const enabled = yield* shouldEnableAutoUpdates;
+          yield* setState(createBaseUpdateState("forkhub", enabled, environment, { owner, repo }));
+        }
+        return yield* Ref.get(updateStateRef);
+      });
     }),
     check: Effect.fn("desktop.updates.check")(function* (reason: string) {
       yield* Effect.annotateCurrentSpan({ reason });

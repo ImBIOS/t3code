@@ -194,6 +194,19 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
                     }),
                   ),
                 ),
+          setForkHubOwner: (input) =>
+            (options.beforeSetUpdateChannel ?? Effect.void).pipe(
+              Effect.andThen(
+                Effect.sync(() => {
+                  testSettings = {
+                    ...testSettings,
+                    forkhubOwner: input.owner,
+                    forkhubRepo: input.repo ?? testSettings.forkhubRepo,
+                  };
+                  return { settings: testSettings, changed: true };
+                }),
+              ),
+            ),
           setWslBackendEnabled: () => Effect.die("unexpected WSL backend toggle"),
           setWslDistro: () => Effect.die("unexpected WSL distro change"),
           setLocalEnvironmentEnabled: () => Effect.die("unexpected local environment toggle"),

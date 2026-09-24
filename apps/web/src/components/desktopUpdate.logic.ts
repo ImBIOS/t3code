@@ -25,6 +25,36 @@ export function getDesktopUpdateReleaseHistoryUrl(): string {
   return DESKTOP_RELEASE_HISTORY_URL;
 }
 
+/**
+ * ForkHub installs update from another account's `.forkhub` releases, so
+ * release links must point at that repo instead of upstream.
+ */
+export function getForkHubUpdateReleaseUrl(
+  state: Pick<DesktopUpdateState, "channel" | "forkhubOwner" | "forkhubRepo">,
+  version: string | null,
+): string | null {
+  if (state.channel !== "forkhub" || !state.forkhubOwner) return null;
+  const normalizedVersion = version?.trim();
+  if (!normalizedVersion) return null;
+  return `https://github.com/${state.forkhubOwner}/${state.forkhubRepo ?? ".forkhub"}/releases/tag/v${encodeURIComponent(normalizedVersion)}`;
+}
+
+export function getDesktopUpdateReleaseUrlForState(
+  state: Pick<DesktopUpdateState, "channel" | "forkhubOwner" | "forkhubRepo">,
+  version: string | null,
+): string | null {
+  return getForkHubUpdateReleaseUrl(state, version) ?? getDesktopUpdateReleaseUrl(version);
+}
+
+export function getDesktopUpdateReleaseHistoryUrlForState(
+  state: Pick<DesktopUpdateState, "channel" | "forkhubOwner" | "forkhubRepo"> | null,
+): string {
+  if (state?.channel === "forkhub" && state.forkhubOwner) {
+    return `https://github.com/${state.forkhubOwner}/${state.forkhubRepo ?? ".forkhub"}/releases`;
+  }
+  return DESKTOP_RELEASE_HISTORY_URL;
+}
+
 export function resolveDesktopUpdateButtonAction(
   state: DesktopUpdateState,
 ): DesktopUpdateButtonAction {
@@ -101,7 +131,7 @@ export function getDesktopUpdateInstallConfirmationMessage(
   state: Pick<DesktopUpdateState, "availableVersion" | "downloadedVersion">,
 ): string {
   const version = state.downloadedVersion ?? state.availableVersion;
-  return `Install update${version ? ` ${version}` : ""} and restart T3 Code?\n\nAny running tasks will be interrupted. Make sure you're ready before continuing.`;
+  return `Install update${version ? ` ${version}` : ""} and restart T3 Code?\n\nAny running tasks will be interrupted. Make sure you're ready before continuing.\n\nAfter restarting, use Update all to bring your connected T3 Code servers to the same version.`;
 }
 
 export function getDesktopUpdateActionError(result: DesktopUpdateActionResult): string | null {

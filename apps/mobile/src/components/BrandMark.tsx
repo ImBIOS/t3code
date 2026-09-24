@@ -14,10 +14,16 @@ const BRAND_MARK_SOURCE =
 const DEFAULT_STAGE_LABEL =
   appVariant === "development" ? "Dev" : appVariant === "preview" ? "Preview" : "Alpha";
 
-export function BrandMark(props: { readonly compact?: boolean; readonly stageLabel?: string }) {
+export function BrandMark(props: {
+  readonly compact?: boolean;
+  readonly stageLabel?: string;
+  /** ForkHub-patched builds render an "x ForkHub" co-brand next to the name. */
+  readonly forkHub?: boolean;
+}) {
   const compact = props.compact ?? false;
   const iconSize = compact ? 32 : 44;
   const stageLabel = props.stageLabel ?? DEFAULT_STAGE_LABEL;
+  const forkHub = props.forkHub ?? false;
 
   return (
     <View className="flex-row items-center gap-3">
@@ -32,7 +38,9 @@ export function BrandMark(props: { readonly compact?: boolean; readonly stageLab
       />
       <View className="gap-1">
         <View className="flex-row items-center gap-2">
-          <Text className="text-lg font-t3-bold tracking-[-0.4px] text-foreground">T3 Code</Text>
+          <Text className="text-lg font-t3-bold tracking-[-0.4px] text-foreground">
+            T3 Code{forkHub ? " x ForkHub" : ""}
+          </Text>
           <View className="rounded-full bg-subtle px-2 py-1">
             <Text className="text-3xs font-t3-bold tracking-[1.1px] uppercase text-foreground-muted">
               {stageLabel}

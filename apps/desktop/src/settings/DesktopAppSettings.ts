@@ -1,6 +1,8 @@
 import {
+  DesktopForkHubRepoSchema,
   DesktopServerExposureModeSchema,
   DesktopUpdateChannelSchema,
+  type DesktopForkHubRepo,
   type DesktopServerExposureMode,
   type DesktopUpdateChannel,
 } from "@t3tools/contracts";
@@ -21,7 +23,10 @@ import {
   normalizeLinuxPasswordStorePreference,
   type LinuxPasswordStorePreference,
 } from "../linuxSecretStorage.ts";
-import { resolveDefaultDesktopUpdateChannel } from "../updates/updateChannels.ts";
+import {
+  normalizeForkHubOwner,
+  resolveDefaultDesktopUpdateChannel,
+} from "../updates/updateChannels.ts";
 import { isValidDistroName } from "../wsl/wslPathParsing.ts";
 
 export interface DesktopSettings {
@@ -34,6 +39,10 @@ export interface DesktopSettings {
   readonly tailscaleServePort: number;
   readonly updateChannel: DesktopUpdateChannel;
   readonly updateChannelConfiguredByUser: boolean;
+  // ForkHub updater channel: GitHub profile/org whose `.forkhub` releases
+  // this install updates from when updateChannel is "forkhub".
+  readonly forkhubOwner: string;
+  readonly forkhubRepo: DesktopForkHubRepo;
   // Was a "local" | "wsl" swap mode in an earlier iteration of the WSL
   // integration. We now run Windows and WSL backends side by side, so the
   // setting is just whether the WSL backend should be running alongside the
@@ -83,6 +92,8 @@ export const DEFAULT_DESKTOP_SETTINGS: DesktopSettings = {
   tailscaleServePort: DEFAULT_TAILSCALE_SERVE_PORT,
   updateChannel: "latest",
   updateChannelConfiguredByUser: false,
+  forkhubOwner: "",
+  forkhubRepo: ".forkhub",
   wslBackendEnabled: false,
   wslDistro: null,
   wslOnly: false,
@@ -105,6 +116,8 @@ const DesktopSettingsDocument = Schema.Struct({
   tailscaleServePort: Schema.optionalKey(Schema.Number),
   updateChannel: Schema.optionalKey(DesktopUpdateChannelSchema),
   updateChannelConfiguredByUser: Schema.optionalKey(Schema.Boolean),
+  forkhubOwner: Schema.optionalKey(Schema.String),
+  forkhubRepo: Schema.optionalKey(DesktopForkHubRepoSchema),
   // Newer form of the WSL toggle. `wslMode` is still accepted on load so
   // existing on-disk settings keep working; on the next persist we write the
   // new boolean and the legacy key drops out.
@@ -172,6 +185,10 @@ export class DesktopAppSettings extends Context.Service<
     readonly setUpdateChannel: (
       channel: DesktopUpdateChannel,
     ) => Effect.Effect<DesktopSettingsChange, DesktopSettingsWriteError>;
+    readonly setForkHubOwner: (input: {
+      readonly owner: string;
+      readonly repo?: DesktopForkHubRepo | undefined;
+    }) => Effect.Effect<DesktopSettingsChange, DesktopSettingsWriteError>;
     readonly setWslBackendEnabled: (
       enabled: boolean,
     ) => Effect.Effect<DesktopSettingsChange, DesktopSettingsWriteError>;
@@ -242,6 +259,11 @@ function normalizeDesktopSettingsDocument(
       ? Option.getOrElse(parsedUpdateChannel, () => defaultSettings.updateChannel)
       : defaultSettings.updateChannel,
     updateChannelConfiguredByUser,
+    forkhubOwner: normalizeForkHubOwner(parsed.forkhubOwner) ?? "",
+    forkhubRepo:
+      parsed.forkhubRepo === ".forkhub-private" || parsed.forkhubRepo === ".forkhub"
+        ? parsed.forkhubRepo
+        : ".forkhub",
     wslBackendEnabled,
     wslDistro: normalizeWslDistro(parsed.wslDistro),
     wslOnly: parsed.wslOnly === true,
@@ -281,6 +303,12 @@ function toDesktopSettingsDocument(
   }
   if (settings.updateChannelConfiguredByUser !== defaults.updateChannelConfiguredByUser) {
     document.updateChannelConfiguredByUser = settings.updateChannelConfiguredByUser;
+  }
+  if (settings.forkhubOwner !== defaults.forkhubOwner) {
+    document.forkhubOwner = settings.forkhubOwner;
+  }
+  if (settings.forkhubRepo !== defaults.forkhubRepo) {
+    document.forkhubRepo = settings.forkhubRepo;
   }
   if (settings.wslBackendEnabled !== defaults.wslBackendEnabled) {
     document.wslBackendEnabled = settings.wslBackendEnabled;
@@ -351,6 +379,17 @@ function setUpdateChannel(
         updateChannel: requestedChannel,
         updateChannelConfiguredByUser: true,
       };
+}
+
+function setForkHubOwner(
+  settings: DesktopSettings,
+  input: { readonly owner: string; readonly repo?: DesktopForkHubRepo | undefined },
+): DesktopSettings {
+  const owner = normalizeForkHubOwner(input.owner) ?? "";
+  const repo = input.repo ?? settings.forkhubRepo;
+  return settings.forkhubOwner === owner && settings.forkhubRepo === repo
+    ? settings
+    : { ...settings, forkhubOwner: owner, forkhubRepo: repo };
 }
 
 function setWslBackendEnabled(settings: DesktopSettings, enabled: boolean): DesktopSettings {
@@ -548,6 +587,10 @@ export const make = Effect.gen(function* () {
       persist((settings) => setUpdateChannel(settings, channel)).pipe(
         Effect.withSpan("desktop.settings.setUpdateChannel", { attributes: { channel } }),
       ),
+    setForkHubOwner: (input) =>
+      persist((settings) => setForkHubOwner(settings, input)).pipe(
+        Effect.withSpan("desktop.settings.setForkHubOwner", { attributes: input }),
+      ),
     setWslBackendEnabled: (enabled) =>
       persist((settings) => setWslBackendEnabled(settings, enabled)).pipe(
         Effect.withSpan("desktop.settings.setWslBackendEnabled", { attributes: { enabled } }),
@@ -603,6 +646,7 @@ export const layerTest = (initialSettings: DesktopSettings = DEFAULT_DESKTOP_SET
           update((settings) => setServerExposureMode(settings, mode)),
         setTailscaleServe: (input) => update((settings) => setTailscaleServe(settings, input)),
         setUpdateChannel: (channel) => update((settings) => setUpdateChannel(settings, channel)),
+        setForkHubOwner: (input) => update((settings) => setForkHubOwner(settings, input)),
         setWslBackendEnabled: (enabled) =>
           update((settings) => setWslBackendEnabled(settings, enabled)),
         setWslDistro: (distro) => update((settings) => setWslDistro(settings, distro)),

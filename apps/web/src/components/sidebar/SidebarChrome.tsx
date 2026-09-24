@@ -5,6 +5,7 @@ import { Link, useCanGoBack, useLocation, useNavigate } from "@tanstack/react-ro
 
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
+import { useDesktopUpdateState } from "../../state/desktopUpdate";
 import { useEnvironments } from "../../state/environments";
 import { T3Wordmark } from "../T3Wordmark";
 import {
@@ -79,9 +80,11 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
 });
 
 function SidebarBrand({ onBackdrop }: { onBackdrop: boolean }) {
+  const updateState = useDesktopUpdateState();
+  const isForkHub = updateState?.channel === "forkhub";
   return (
     <Link
-      aria-label="Go to threads"
+      aria-label={isForkHub ? "Go to threads (T3 Code x ForkHub)" : "Go to threads"}
       className={cn(
         "relative z-10 ml-[var(--workspace-titlebar-content-left)] hidden h-7 w-fit min-w-0 shrink-0 items-center overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2 md:flex",
         onBackdrop ? "text-white" : "text-foreground",
@@ -99,6 +102,17 @@ function SidebarBrand({ onBackdrop }: { onBackdrop: boolean }) {
         >
           Code
         </span>
+        {isForkHub ? (
+          <span
+            className={cn(
+              "truncate text-xs font-semibold tracking-tight [text-box:trim-both_cap_alphabetic]",
+              onBackdrop ? "text-white/70" : "text-muted-foreground",
+            )}
+            aria-hidden="true"
+          >
+            x ForkHub
+          </span>
+        ) : null}
       </span>
     </Link>
   );

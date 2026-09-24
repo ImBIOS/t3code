@@ -85,7 +85,7 @@ export type DesktopUpdateStatus =
 
 export type DesktopRuntimeArch = "arm64" | "x64" | "other";
 export type DesktopTheme = "light" | "dark" | "system";
-export type DesktopUpdateChannel = "latest" | "nightly";
+export type DesktopUpdateChannel = "latest" | "nightly" | "forkhub";
 export type DesktopAppStageLabel = "Alpha" | "Dev" | "Nightly";
 
 export const DesktopUpdateStatusSchema = Schema.Literals([
@@ -100,7 +100,17 @@ export const DesktopUpdateStatusSchema = Schema.Literals([
 ]);
 export const DesktopRuntimeArchSchema = Schema.Literals(["arm64", "x64", "other"]);
 export const DesktopThemeSchema = Schema.Literals(["light", "dark", "system"]);
-export const DesktopUpdateChannelSchema = Schema.Literals(["latest", "nightly"]);
+export const DesktopUpdateChannelSchema = Schema.Literals(["latest", "nightly", "forkhub"]);
+// GitHub profile or org that owns the `.forkhub` (or `.forkhub-private`)
+// intent repo whose Releases are the updater channel for ForkHub builds.
+export const DesktopForkHubOwnerSchema = Schema.String.check(
+  Schema.isMinLength(1),
+  Schema.isMaxLength(39),
+  Schema.isPattern(/^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$/),
+);
+export type DesktopForkHubOwner = typeof DesktopForkHubOwnerSchema.Type;
+export const DesktopForkHubRepoSchema = Schema.Literals([".forkhub", ".forkhub-private"]);
+export type DesktopForkHubRepo = typeof DesktopForkHubRepoSchema.Type;
 export const DesktopAppStageLabelSchema = Schema.Literals(["Alpha", "Dev", "Nightly"]);
 
 export interface DesktopAppBranding {
@@ -276,6 +286,8 @@ export interface DesktopUpdateState {
   enabled: boolean;
   status: DesktopUpdateStatus;
   channel: DesktopUpdateChannel;
+  forkhubOwner: string | null;
+  forkhubRepo: DesktopForkHubRepo | null;
   currentVersion: string;
   hostArch: DesktopRuntimeArch;
   appArch: DesktopRuntimeArch;
@@ -307,6 +319,8 @@ export const DesktopUpdateStateSchema = Schema.Struct({
   enabled: Schema.Boolean,
   status: DesktopUpdateStatusSchema,
   channel: DesktopUpdateChannelSchema,
+  forkhubOwner: Schema.NullOr(DesktopForkHubOwnerSchema),
+  forkhubRepo: Schema.NullOr(DesktopForkHubRepoSchema),
   currentVersion: Schema.String,
   hostArch: DesktopRuntimeArchSchema,
   appArch: DesktopRuntimeArchSchema,
@@ -1233,6 +1247,10 @@ export interface DesktopBridge {
   onWindowFullscreenStateChange: (listener: (fullscreen: boolean) => void) => () => void;
   getUpdateState: () => Promise<DesktopUpdateState>;
   setUpdateChannel: (channel: DesktopUpdateChannel) => Promise<DesktopUpdateState>;
+  setForkHubOwner: (input: {
+    readonly owner: string;
+    readonly repo?: DesktopForkHubRepo;
+  }) => Promise<DesktopUpdateState>;
   checkForUpdate: () => Promise<DesktopUpdateCheckResult>;
   downloadUpdate: () => Promise<DesktopUpdateActionResult>;
   installUpdate: () => Promise<DesktopUpdateActionResult>;

@@ -34,6 +34,7 @@ import {
   downloadUpdate,
   getUpdateState,
   installUpdate,
+  setForkHubOwner,
   setUpdateChannel,
 } from "./methods/updates.ts";
 import {
@@ -137,6 +138,7 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* ipc.handle(probeRemoteEditors);
   yield* ipc.handle(getUpdateState);
   yield* ipc.handle(setUpdateChannel);
+  yield* ipc.handle(setForkHubOwner);
   yield* ipc.handle(downloadUpdate);
   yield* ipc.handle(installUpdate);
   yield* ipc.handle(checkForUpdate);

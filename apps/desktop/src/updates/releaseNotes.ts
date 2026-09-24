@@ -1,6 +1,6 @@
 import type { DesktopUpdateChannel, DesktopUpdateReleaseNote } from "@t3tools/contracts";
 
-import { resolveDefaultDesktopUpdateChannel } from "./updateChannels.ts";
+import { isVersionAllowedOnUpdateChannel } from "./updateChannels.ts";
 
 interface ElectronReleaseNoteInfo {
   readonly version: string;
@@ -144,7 +144,7 @@ export function normalizeDesktopUpdateReleaseNotes(
       : Array.isArray(releaseNotes)
         ? releaseNotes.filter(isElectronReleaseNoteInfo)
         : []
-  ).filter((entry) => resolveDefaultDesktopUpdateChannel(entry.version) === channel);
+  ).filter((entry) => isVersionAllowedOnUpdateChannel(entry.version, channel));
 
   const normalizedNotes = rawNotes.flatMap((entry) => {
     const { items, totalItems } = extractReleaseNoteItems(entry.note);

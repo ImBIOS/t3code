@@ -3,7 +3,7 @@ import { ArrowRightIcon } from "lucide-react";
 
 import {
   getDesktopUpdateDownloadedVersion,
-  getDesktopUpdateReleaseUrl,
+  getDesktopUpdateReleaseUrlForState,
 } from "./desktopUpdate.logic";
 import { toastManager } from "./ui/toast";
 
@@ -50,13 +50,17 @@ export function showDesktopUpdateDownloadedToast(
   shell: DesktopUpdateShell,
   state: DesktopUpdateState,
 ): void {
-  const releaseUrl = getDesktopUpdateReleaseUrl(getDesktopUpdateDownloadedVersion(state));
+  const releaseUrl = getDesktopUpdateReleaseUrlForState(
+    state,
+    getDesktopUpdateDownloadedVersion(state),
+  );
   toastManager.add({
     type: "success",
     title: "Update downloaded",
     description: (
       <>
-        Restart the app from the update button to install it.
+        Restart the app from the update button to install it. After restarting, bring connected
+        servers to the same version with Update all.
         {releaseUrl ? <ReleaseNotesLink releaseUrl={releaseUrl} shell={shell} /> : null}
       </>
     ),
