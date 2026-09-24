@@ -33,6 +33,18 @@ describe("checkForkHubOwner", () => {
     expect(fetchImpl).toHaveBeenCalledOnce();
   });
 
+  it("labels latest with a version tag, not a newer bundle tag", async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse(200, [
+        { tag_name: "pingdotgg-t3code-v0.0.43-nightly.20260924.2187-fh1" },
+        { tag_name: "v0.0.43-nightly.20260924.2187.fh.imbios.1" },
+        { tag_name: "v0.0.42" },
+      ]),
+    );
+    const result = await checkForkHubOwner("ImBIOS", fetchImpl as unknown as typeof fetch);
+    expect(result.latestTag).toBe("v0.0.43-nightly.20260924.2187.fh.imbios.1");
+  });
+
   it("rejects owners with no public catalog", async () => {
     const fetchImpl = vi.fn(async () => jsonResponse(404, { message: "Not Found" }));
     await expect(

@@ -2561,7 +2561,10 @@ export const resolveGitHubPublishConfig = Effect.fn("resolveGitHubPublishConfig"
 });
 
 export function resolveDesktopUpdateChannel(version: string): "latest" | "nightly" {
-  return /-nightly\.\d{8}\.\d+$/.test(version) ? "nightly" : "latest";
+  // ForkHub builds keep the upstream train plus a `.fh.<owner>.<n>`
+  // provenance suffix; the train (and its updater manifests) still follow
+  // the base version.
+  return /-nightly\.\d{8}\.\d+(?:\.fh\.[a-z0-9-]+\.\d+)?$/.test(version) ? "nightly" : "latest";
 }
 
 // Pull request builds (`-pr.<n>.`) and the maintainers' preview train

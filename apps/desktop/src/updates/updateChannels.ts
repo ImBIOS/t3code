@@ -1,7 +1,17 @@
 import type { DesktopForkHubRepo, DesktopUpdateChannel } from "@t3tools/contracts";
 
 const NIGHTLY_VERSION_PATTERN = /^[^-+]+-nightly\.\d{8}\.\d+$/;
+// ForkHub builds carry the upstream version plus a `.fh.<owner>.<n>`
+// prerelease extension (e.g. `0.0.43-nightly.20260924.2187.fh.imbios.1`),
+// so the build advertises its provenance while keeping train ordering.
+const FORKHUB_VERSION_SUFFIX_PATTERN = /\.fh\.[a-z0-9-]+\.\d+$/;
+const NIGHTLY_OR_FORKHUB_VERSION_PATTERN =
+  /^[^-+]+-nightly\.\d{8}\.\d+(?:\.fh\.[a-z0-9-]+\.\d+)?$/;
 const PREVIEW_VERSION_PATTERN = /^[^-+]+-preview\.\d{8}\.\d+$/;
+
+export function isForkHubDerivedVersion(version: string): boolean {
+  return FORKHUB_VERSION_SUFFIX_PATTERN.test(version);
+}
 // Preview builds are the maintainers' test train, cut by hand from unreleased
 // branches to exercise the release flow. They share nightly's branding but
 // are packaged without an update feed (see
@@ -15,7 +25,7 @@ export function isNightlyDesktopVersion(version: string): boolean {
 }
 
 export function resolveDefaultDesktopUpdateChannel(appVersion: string): DesktopUpdateChannel {
-  return NIGHTLY_VERSION_PATTERN.test(appVersion) ? "nightly" : "latest";
+  return NIGHTLY_OR_FORKHUB_VERSION_PATTERN.test(appVersion) ? "nightly" : "latest";
 }
 
 // ForkHub: the updater channel is another GitHub profile/org's public
@@ -46,18 +56,19 @@ export function resolveForkHubFeedConfig(input: {
 
 /**
  * Whether an updater-advertised version may be installed on a channel.
- * Mirrors the feed each track polls: nightly follows the nightly train
- * only, stable follows release builds, and ForkHub follows whatever its
- * publisher's catalog serves (stable and/or nightly-based builds) —
- * everything except preview cuts, which ship without a feed. Unknown
- * future channels fail closed.
+ * Stock tracks take stock builds only: a `.fh` build must never flow into
+ * `latest` or `nightly`. ForkHub follows whatever its publisher's catalog
+ * serves (stable and/or nightly-based builds, suffixed or not) — everything
+ * except preview/PR cuts, which ship without a feed. Unknown future
+ * channels fail closed.
  */
 export function isVersionAllowedOnUpdateChannel(
   version: string,
   channel: DesktopUpdateChannel,
 ): boolean {
+  if (isForkHubDerivedVersion(version)) return channel === "forkhub";
   if (channel === "nightly") return NIGHTLY_VERSION_PATTERN.test(version);
   if (channel === "latest") return resolveDefaultDesktopUpdateChannel(version) === "latest";
-  if (channel === "forkhub") return !PREVIEW_VERSION_PATTERN.test(version);
+  if (channel === "forkhub") return !PREVIEW_VERSION_PATTERN.test(version) && !/-pr\./.test(version);
   return false;
 }

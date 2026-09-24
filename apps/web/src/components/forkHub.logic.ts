@@ -81,9 +81,18 @@ export async function checkForkHubOwner(
       `${owner}/${repo} exists but has no published releases yet. Ask them to publish a ForkHub build first.`,
     );
   }
+  // Bundle releases (e.g. `pingdotgg-t3code-v…-fh1`) are newer than the
+  // updater releases they describe; the "latest" label should name a real
+  // version tag — which is also where the ForkHub provenance suffix shows.
+  const versioned = releases.find(
+    (row) =>
+      typeof (row as GitHubReleaseRow).tag_name === "string" &&
+      /^v\d+\.\d+\.\d+/.test((row as GitHubReleaseRow).tag_name as string),
+  );
+  const newest = versioned ?? releases[0];
   const latestTag =
-    typeof (releases[0] as GitHubReleaseRow).tag_name === "string"
-      ? ((releases[0] as GitHubReleaseRow).tag_name as string)
+    newest !== undefined && typeof (newest as GitHubReleaseRow).tag_name === "string"
+      ? ((newest as GitHubReleaseRow).tag_name as string)
       : null;
   return { owner, repo, releaseCount: releases.length, latestTag };
 }

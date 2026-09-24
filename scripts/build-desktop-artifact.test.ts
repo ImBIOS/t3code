@@ -251,6 +251,12 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
   it("resolves the dedicated nightly updater channel from nightly versions", () => {
     assert.equal(resolveDesktopUpdateChannel("0.0.17-nightly.20260413.42"), "nightly");
     assert.equal(resolveDesktopUpdateChannel("0.0.17"), "latest");
+    // ForkHub provenance suffixes keep the base train for manifests.
+    assert.equal(
+      resolveDesktopUpdateChannel("0.0.43-nightly.20260924.2187.fh.imbios.1"),
+      "nightly",
+    );
+    assert.equal(resolveDesktopUpdateChannel("0.0.42.fh.imbios.1"), "latest");
   });
 
   it("switches desktop packaging product names to nightly for nightly builds", () => {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  isForkHubDerivedVersion,
   isNightlyDesktopVersion,
   isVersionAllowedOnUpdateChannel,
   normalizeForkHubOwner,
@@ -48,5 +49,23 @@ describe("updateChannels", () => {
     expect(isVersionAllowedOnUpdateChannel("1.2.3-nightly.20260911.1", "nightly")).toBe(true);
     expect(isVersionAllowedOnUpdateChannel("1.2.3", "nightly")).toBe(false);
     expect(isVersionAllowedOnUpdateChannel("0.0.41-preview.20260911.7", "nightly")).toBe(false);
+  });
+
+  it("gives ForkHub builds a provenance suffix that only ForkHub installs", () => {
+    expect(isForkHubDerivedVersion("0.0.43-nightly.20260924.2187.fh.imbios.1")).toBe(true);
+    expect(isForkHubDerivedVersion("0.0.42.fh.imbios.2")).toBe(true);
+    expect(isForkHubDerivedVersion("0.0.43-nightly.20260924.2187")).toBe(false);
+    expect(isForkHubDerivedVersion("0.0.42")).toBe(false);
+    expect(
+      isVersionAllowedOnUpdateChannel("0.0.43-nightly.20260924.2187.fh.imbios.1", "forkhub"),
+    ).toBe(true);
+    expect(
+      isVersionAllowedOnUpdateChannel("0.0.43-nightly.20260924.2187.fh.imbios.1", "nightly"),
+    ).toBe(false);
+    expect(isVersionAllowedOnUpdateChannel("0.0.42.fh.imbios.1", "latest")).toBe(false);
+    expect(isVersionAllowedOnUpdateChannel("0.0.42.fh.imbios.1", "forkhub")).toBe(true);
+    expect(resolveDefaultDesktopUpdateChannel("0.0.43-nightly.20260924.2187.fh.imbios.1")).toBe(
+      "nightly",
+    );
   });
 });
