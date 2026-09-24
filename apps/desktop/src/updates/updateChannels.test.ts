@@ -34,9 +34,6 @@ describe("updateChannels", () => {
       owner: "ImBIOS",
       repo: ".forkhub",
     });
-    expect(
-      resolveForkHubFeedConfig({ owner: "ImBIOS", repo: ".forkhub-private" })?.repo,
-    ).toBe(".forkhub-private");
     expect(resolveForkHubFeedConfig({ owner: "not valid!" })).toBeNull();
   });
 

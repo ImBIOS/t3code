@@ -101,15 +101,15 @@ export const DesktopUpdateStatusSchema = Schema.Literals([
 export const DesktopRuntimeArchSchema = Schema.Literals(["arm64", "x64", "other"]);
 export const DesktopThemeSchema = Schema.Literals(["light", "dark", "system"]);
 export const DesktopUpdateChannelSchema = Schema.Literals(["latest", "nightly", "forkhub"]);
-// GitHub profile or org that owns the `.forkhub` (or `.forkhub-private`)
-// intent repo whose Releases are the updater channel for ForkHub builds.
+// GitHub profile or org that owns the `.forkhub` intent repo whose
+// Releases are the updater channel for ForkHub builds.
 export const DesktopForkHubOwnerSchema = Schema.String.check(
   Schema.isMinLength(1),
   Schema.isMaxLength(39),
   Schema.isPattern(/^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$/),
 );
 export type DesktopForkHubOwner = typeof DesktopForkHubOwnerSchema.Type;
-export const DesktopForkHubRepoSchema = Schema.Literals([".forkhub", ".forkhub-private"]);
+export const DesktopForkHubRepoSchema = Schema.Literals([".forkhub"]);
 export type DesktopForkHubRepo = typeof DesktopForkHubRepoSchema.Type;
 export const DesktopAppStageLabelSchema = Schema.Literals(["Alpha", "Dev", "Nightly"]);
 

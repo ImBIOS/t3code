@@ -260,10 +260,7 @@ function normalizeDesktopSettingsDocument(
       : defaultSettings.updateChannel,
     updateChannelConfiguredByUser,
     forkhubOwner: normalizeForkHubOwner(parsed.forkhubOwner) ?? "",
-    forkhubRepo:
-      parsed.forkhubRepo === ".forkhub-private" || parsed.forkhubRepo === ".forkhub"
-        ? parsed.forkhubRepo
-        : ".forkhub",
+    forkhubRepo: parsed.forkhubRepo === ".forkhub" ? parsed.forkhubRepo : ".forkhub",
     wslBackendEnabled,
     wslDistro: normalizeWslDistro(parsed.wslDistro),
     wslOnly: parsed.wslOnly === true,

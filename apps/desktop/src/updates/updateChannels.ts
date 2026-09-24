@@ -17,14 +17,11 @@ export function resolveDefaultDesktopUpdateChannel(appVersion: string): DesktopU
   return NIGHTLY_VERSION_PATTERN.test(appVersion) ? "nightly" : "latest";
 }
 
-// ForkHub: the updater channel is another GitHub profile/org's `.forkhub`
-// releases (`.forkhub-private` while the public catalog is being prepared).
-// The owner input is validated against the GitHub Releases API before the
-// feed is pointed at it; see apps/web/src/components/forkHub.logic.ts.
-export const FORKHUB_UPDATE_REPOS: ReadonlyArray<DesktopForkHubRepo> = [
-  ".forkhub",
-  ".forkhub-private",
-];
+// ForkHub: the updater channel is another GitHub profile/org's public
+// `.forkhub` releases. The owner input is validated against the GitHub
+// Releases API before the feed is pointed at it; see
+// apps/web/src/components/forkHub.logic.ts.
+export const FORKHUB_UPDATE_REPOS: ReadonlyArray<DesktopForkHubRepo> = [".forkhub"];
 
 const FORKHUB_OWNER_PATTERN = /^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$/;
 
@@ -42,7 +39,7 @@ export function resolveForkHubFeedConfig(input: {
   const owner = normalizeForkHubOwner(input.owner);
   if (!owner) return null;
   const repo = input.repo ?? ".forkhub";
-  if (repo !== ".forkhub" && repo !== ".forkhub-private") return null;
+  if (repo !== ".forkhub") return null;
   return { provider: "github", owner, repo };
 }
 

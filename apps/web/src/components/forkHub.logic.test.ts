@@ -33,15 +33,12 @@ describe("checkForkHubOwner", () => {
     expect(fetchImpl).toHaveBeenCalledOnce();
   });
 
-  it("falls back to .forkhub-private when the public catalog is missing", async () => {
-    const fetchImpl = vi.fn(async (url: string) =>
-      url.includes(".forkhub-private")
-        ? jsonResponse(200, [{ tag_name: "pingdotgg-t3code-v1.0.0-fh1" }])
-        : jsonResponse(404, { message: "Not Found" }),
-    );
-    const result = await checkForkHubOwner("ImBIOS", fetchImpl as unknown as typeof fetch);
-    expect(result.repo).toBe(".forkhub-private");
-    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  it("rejects owners with no public catalog", async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(404, { message: "Not Found" }));
+    await expect(
+      checkForkHubOwner("ghost", fetchImpl as unknown as typeof fetch),
+    ).rejects.toThrow("no .forkhub releases");
+    expect(fetchImpl).toHaveBeenCalledOnce();
   });
 
   it("rejects owners with no releases anywhere", async () => {
