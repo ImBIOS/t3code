@@ -1,6 +1,7 @@
 import type { DesktopForkHubRepo, DesktopUpdateChannel } from "@t3tools/contracts";
 
 const NIGHTLY_VERSION_PATTERN = /^[^-+]+-nightly\.\d{8}\.\d+$/;
+const PREVIEW_VERSION_PATTERN = /^[^-+]+-preview\.\d{8}\.\d+$/;
 // Preview builds are the maintainers' test train, cut by hand from unreleased
 // branches to exercise the release flow. They share nightly's branding but
 // are packaged without an update feed (see
@@ -46,8 +47,10 @@ export function resolveForkHubFeedConfig(input: {
 /**
  * Whether an updater-advertised version may be installed on a channel.
  * Mirrors the feed each track polls: nightly follows the nightly train
- * only (preview cuts ship without a feed), while stable and ForkHub both
- * track release builds. Unknown future channels fail closed.
+ * only, stable follows release builds, and ForkHub follows whatever its
+ * publisher's catalog serves (stable and/or nightly-based builds) —
+ * everything except preview cuts, which ship without a feed. Unknown
+ * future channels fail closed.
  */
 export function isVersionAllowedOnUpdateChannel(
   version: string,
@@ -55,6 +58,6 @@ export function isVersionAllowedOnUpdateChannel(
 ): boolean {
   if (channel === "nightly") return NIGHTLY_VERSION_PATTERN.test(version);
   if (channel === "latest") return resolveDefaultDesktopUpdateChannel(version) === "latest";
-  if (channel === "forkhub") return !NIGHTLY_VERSION_PATTERN.test(version);
+  if (channel === "forkhub") return !PREVIEW_VERSION_PATTERN.test(version);
   return false;
 }

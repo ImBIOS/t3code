@@ -123,6 +123,23 @@ describe("normalizeDesktopUpdateReleaseNotes", () => {
     expect(result.omittedReleaseCount).toBe(0);
   });
 
+  it("keeps stable and nightly releases on the ForkHub channel", () => {
+    const result = normalizeDesktopUpdateReleaseNotes(
+      [
+        { version: "0.0.41-preview.20260914.1683", note: "- Maintainer test build" },
+        { version: "0.0.41-nightly.20260914.1707", note: "- Nightly change" },
+        { version: "0.0.42", note: "- Stable change" },
+      ],
+      "0.0.41-nightly.20260914.1707",
+      "forkhub",
+    );
+
+    expect(result.releaseNotes.map(({ version }) => version)).toEqual([
+      "0.0.41-nightly.20260914.1707",
+      "0.0.42",
+    ]);
+  });
+
   it("keeps only stable releases on the latest channel", () => {
     const result = normalizeDesktopUpdateReleaseNotes(
       [

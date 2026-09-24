@@ -41,7 +41,10 @@ describe("updateChannels", () => {
     expect(isVersionAllowedOnUpdateChannel("1.2.3", "latest")).toBe(true);
     expect(isVersionAllowedOnUpdateChannel("1.2.3", "forkhub")).toBe(true);
     expect(isVersionAllowedOnUpdateChannel("1.2.3-nightly.20260911.1", "latest")).toBe(false);
-    expect(isVersionAllowedOnUpdateChannel("1.2.3-nightly.20260911.1", "forkhub")).toBe(false);
+    // A ForkHub catalog may follow the nightly train: nightly-based builds
+    // install on ForkHub, preview cuts never do (they ship without a feed).
+    expect(isVersionAllowedOnUpdateChannel("1.2.3-nightly.20260911.1", "forkhub")).toBe(true);
+    expect(isVersionAllowedOnUpdateChannel("0.0.41-preview.20260911.7", "forkhub")).toBe(false);
     expect(isVersionAllowedOnUpdateChannel("1.2.3-nightly.20260911.1", "nightly")).toBe(true);
     expect(isVersionAllowedOnUpdateChannel("1.2.3", "nightly")).toBe(false);
     expect(isVersionAllowedOnUpdateChannel("0.0.41-preview.20260911.7", "nightly")).toBe(false);

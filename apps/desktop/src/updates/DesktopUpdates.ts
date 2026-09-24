@@ -405,8 +405,9 @@ export const make = Effect.gen(function* () {
   ) {
     yield* Effect.annotateCurrentSpan({ channel });
     if (channel === "forkhub") {
-      // ForkHub tracks release builds published to another account's
-      // `.forkhub` repo. The feed repo is dynamic (it follows the stored
+      // ForkHub tracks the builds published to another account's
+      // `.forkhub` repo — stable and/or nightly-based, depending on the
+      // publisher. The feed repo is dynamic (it follows the stored
       // owner), so it is pointed at runtime instead of build time.
       const feed = forkhub ? resolveForkHubFeedConfig(forkhub) : null;
       if (!feed) {
@@ -416,19 +417,19 @@ export const make = Effect.gen(function* () {
         return;
       }
       yield* electronUpdater.setFeedURL(feed);
-      // ForkHub publishes release builds, so poll the stable manifests
-      // in that repo rather than a prerelease channel.
+      // Poll the stable manifests; prereleases stay installable because a
+      // ForkHub catalog may follow the nightly train.
       yield* electronUpdater.setChannel("latest");
-      yield* electronUpdater.setAllowPrerelease(false);
-      yield* electronUpdater.setAllowDowngrade(false);
-      yield* electronUpdater.setFullChangelog(false);
+      yield* electronUpdater.setAllowPrerelease(true);
+      yield* electronUpdater.setAllowDowngrade(true);
+      yield* electronUpdater.setFullChangelog(true);
       yield* logUpdaterInfo("using update channel", {
         channel,
         forkhubOwner: feed.owner,
         forkhubRepo: feed.repo,
-        allowPrerelease: false,
-        allowDowngrade: false,
-        fullChangelog: false,
+        allowPrerelease: true,
+        allowDowngrade: true,
+        fullChangelog: true,
       });
       return;
     }

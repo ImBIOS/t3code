@@ -31,6 +31,16 @@ const nightlyState: DesktopUpdateState = {
 describe("sidebar update release notes popover", () => {
   it("uses the popover only for visible nightly release notes", () => {
     expect(shouldUseSidebarUpdateReleaseNotesPopover(true, nightlyState)).toBe(true);
+    // A ForkHub catalog may serve nightly-based builds with the same
+    // multi-release notes.
+    expect(
+      shouldUseSidebarUpdateReleaseNotesPopover(true, {
+        ...nightlyState,
+        channel: "forkhub",
+        forkhubOwner: "ImBIOS",
+        forkhubRepo: ".forkhub",
+      }),
+    ).toBe(true);
     expect(shouldUseSidebarUpdateReleaseNotesPopover(false, nightlyState)).toBe(false);
     expect(
       shouldUseSidebarUpdateReleaseNotesPopover(true, {
