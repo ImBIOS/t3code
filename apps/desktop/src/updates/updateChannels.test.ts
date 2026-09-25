@@ -19,6 +19,7 @@ describe("updateChannels", () => {
   it("only matches the first prerelease identifier", () => {
     expect(isNightlyDesktopVersion("1.2.3-foo-preview.20260911.1")).toBe(false);
     expect(isNightlyDesktopVersion("1.2.3")).toBe(false);
+    expect(isNightlyDesktopVersion("0.0.43-nightly.20260924.2187.fh.imbios.1")).toBe(true);
   });
 
   it("normalizes ForkHub owner names like GitHub does", () => {

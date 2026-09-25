@@ -18,7 +18,8 @@ export function isForkHubDerivedVersion(version: string): boolean {
 // isDesktopPreviewVersion in scripts/build-desktop-artifact.ts), so the
 // channel a preview install reports is cosmetic: it never checks for updates
 // and no updater feed ever lists a preview release.
-const PRERELEASE_VERSION_PATTERN = /^[^-+]+-(?:nightly|preview)\.\d{8}\.\d+$/;
+const PRERELEASE_VERSION_PATTERN =
+  /^[^-+]+-(?:nightly|preview)\.\d{8}\.\d+(?:\.fh\.[a-z0-9-]+\.\d+)?$/;
 
 export function isNightlyDesktopVersion(version: string): boolean {
   return PRERELEASE_VERSION_PATTERN.test(version);

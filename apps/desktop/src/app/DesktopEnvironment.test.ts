@@ -182,6 +182,27 @@ describe("DesktopEnvironment", () => {
     }),
   );
 
+  it("brands ForkHub builds from the version provenance suffix", () => {
+    assert.deepEqual(
+      DesktopEnvironment.resolveDesktopAppBranding({
+        isDevelopment: false,
+        appVersion: "0.0.43-nightly.20260924.2187.fh.imbios.1",
+      }),
+      {
+        baseName: "T3 Code",
+        stageLabel: "Nightly",
+        displayName: "T3 Code x ForkHub",
+      },
+    );
+    assert.deepEqual(
+      DesktopEnvironment.resolveDesktopAppBranding({
+        isDevelopment: false,
+        appVersion: "0.0.43-nightly.20260924.2187",
+      }).displayName,
+      "T3 Code (Nightly)",
+    );
+  });
+
   it.effect("resolves picker defaults without nullish sentinels", () =>
     Effect.gen(function* () {
       const environment = yield* makeEnvironment();
