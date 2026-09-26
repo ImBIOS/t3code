@@ -134,6 +134,18 @@ export function getDesktopUpdateInstallConfirmationMessage(
   return `Install update${version ? ` ${version}` : ""} and restart T3 Code?\n\nAny running tasks will be interrupted. Make sure you're ready before continuing.\n\nAfter restarting, use Update all to bring your connected T3 Code servers to the same version.`;
 }
 
+/**
+ * IPC failures arrive wrapped as `Error invoking remote method 'x':
+ * <Tag>Error: <message>`. Toasts should show the meaningful tail, not the
+ * plumbing.
+ */
+export function getDesktopUpdateErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : "Update failed.";
+  const parts = message.split(/(?:^|:\s*)[A-Za-z][A-Za-z0-9]*Error: /);
+  const tail = parts[parts.length - 1]?.trim();
+  return tail && tail.length > 0 ? tail : message;
+}
+
 export function getDesktopUpdateActionError(result: DesktopUpdateActionResult): string | null {
   if (!result.accepted || result.completed) return null;
   if (typeof result.state.message !== "string") return null;

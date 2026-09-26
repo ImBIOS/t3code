@@ -52,6 +52,7 @@ import { APP_VERSION, HOSTED_APP_CHANNEL, HOSTED_APP_CHANNEL_LABEL } from "../..
 import {
   canCheckForUpdate,
   getDesktopUpdateButtonTooltip,
+  getDesktopUpdateErrorMessage,
   getDesktopUpdateInstallConfirmationMessage,
   isDesktopUpdateButtonDisabled,
   resolveDesktopUpdateButtonAction,
@@ -315,7 +316,7 @@ function AboutVersionSection() {
             stackedThreadToast({
               type: "error",
               title: "Could not change update track",
-              description: error instanceof Error ? error.message : "Update track change failed.",
+              description: getDesktopUpdateErrorMessage(error),
             }),
           );
         })
@@ -356,7 +357,8 @@ function AboutVersionSection() {
     } catch (error) {
       setForkhubCheck({
         status: "invalid",
-        message: error instanceof Error ? error.message : "ForkHub check failed.",
+        message:
+          error instanceof Error ? getDesktopUpdateErrorMessage(error) : "ForkHub check failed.",
       });
     }
   }, [forkhubOwnerValue]);

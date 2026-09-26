@@ -6,6 +6,7 @@ import {
   getArm64IntelBuildWarningDescription,
   getDesktopUpdateActionError,
   getDesktopUpdateButtonTooltip,
+  getDesktopUpdateErrorMessage,
   getDesktopUpdateInstallConfirmationMessage,
   getDesktopUpdateReleaseHistoryUrl,
   getDesktopUpdateReleaseUrl,
@@ -271,6 +272,25 @@ describe("desktop update UI helpers", () => {
         downloadedVersion: null,
       }),
     ).toContain("Install update and restart T3 Code?");
+  });
+
+  it("strips IPC plumbing from update error messages", () => {
+    expect(
+      getDesktopUpdateErrorMessage(
+        new Error(
+          "Error invoking remote method 'desktop:update-set-channel': DesktopForkHubOwnerMissingError: Set a ForkHub profile or org before switching to the ForkHub track.",
+        ),
+      ),
+    ).toBe("Set a ForkHub profile or org before switching to the ForkHub track.");
+    expect(
+      getDesktopUpdateErrorMessage(
+        new Error(
+          "Error invoking remote method 'desktop:update-set-channel': DesktopUpdateChannelPersistenceError: Failed to persist the nightly desktop update channel.",
+        ),
+      ),
+    ).toBe("Failed to persist the nightly desktop update channel.");
+    expect(getDesktopUpdateErrorMessage(new Error("network timeout"))).toBe("network timeout");
+    expect(getDesktopUpdateErrorMessage("boom")).toBe("Update failed.");
   });
 
   it("keeps the same install confirmation copy across desktop platforms", () => {
