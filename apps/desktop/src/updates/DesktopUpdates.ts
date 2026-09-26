@@ -105,6 +105,15 @@ export class DesktopUpdateChannelPersistenceError extends Schema.TaggedError<Des
   }
 }
 
+export class DesktopForkHubOwnerMissingError extends Schema.TaggedError<DesktopForkHubOwnerMissingError>()(
+  "DesktopForkHubOwnerMissingError",
+  {},
+) {
+  override get message(): string {
+    return "Set a ForkHub profile or org before switching to the ForkHub track.";
+  }
+}
+
 export class DesktopUpdatePollerError extends Schema.TaggedError<DesktopUpdatePollerError>()(
   "DesktopUpdatePollerError",
   {
@@ -158,6 +167,7 @@ export type DesktopUpdateConfigureError = never;
 export const DesktopUpdateSetChannelError = Schema.Union([
   DesktopUpdateActionInProgressError,
   DesktopUpdateChannelPersistenceError,
+  DesktopForkHubOwnerMissingError,
 ]);
 export type DesktopUpdateSetChannelError = typeof DesktopUpdateSetChannelError.Type;
 
@@ -1009,16 +1019,7 @@ export const make = Effect.gen(function* () {
         if (nextChannel === "forkhub") {
           const settings = yield* desktopSettings.get;
           if (normalizeForkHubOwner(settings.forkhubOwner) === null) {
-            return yield* new DesktopUpdateChannelPersistenceError({
-              channel: nextChannel,
-              cause: new DesktopAppSettings.DesktopSettingsWriteError({
-                operation: "encode-document",
-                path: "desktop-settings.json",
-                cause: new Error(
-                  "Set a ForkHub profile or org first: the updater needs to know whose `.forkhub` releases to poll.",
-                ),
-              }),
-            });
+            return yield* new DesktopForkHubOwnerMissingError();
           }
         }
 

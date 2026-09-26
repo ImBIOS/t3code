@@ -777,6 +777,31 @@ describe("DesktopUpdates", () => {
     }),
   );
 
+  it.effect("asks for a ForkHub owner instead of switching without a feed", () => {
+    const harness = makeHarness();
+
+    return Effect.scoped(
+      Effect.gen(function* () {
+        const settings = yield* DesktopAppSettings.DesktopAppSettings;
+        const updates = yield* DesktopUpdates.DesktopUpdates;
+        yield* updates.configure;
+
+        const error = yield* updates.setChannel("forkhub").pipe(Effect.flip);
+
+        assert.instanceOf(error, DesktopUpdates.DesktopForkHubOwnerMissingError);
+        assert.equal(
+          error.message,
+          "Set a ForkHub profile or org before switching to the ForkHub track.",
+        );
+
+        // Nothing persisted: the track stays where it was.
+        const persistedSettings = yield* settings.get;
+        assert.equal(persistedSettings.updateChannel, "latest");
+        assert.equal((yield* updates.getState).channel, "latest");
+      }),
+    ).pipe(Effect.provide(Layer.merge(TestClock.layer(), harness.layer)));
+  });
+
   it.effect("preserves settings failure context when an update channel cannot be persisted", () => {
     const diskFailure = new Error("disk exploded");
     const settingsFailure = new DesktopAppSettings.DesktopSettingsWriteError({
