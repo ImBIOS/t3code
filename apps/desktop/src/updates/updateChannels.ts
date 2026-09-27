@@ -1,12 +1,15 @@
 import type { DesktopForkHubRepo, DesktopUpdateChannel } from "@t3tools/contracts";
 
 const NIGHTLY_VERSION_PATTERN = /^[^-+]+-nightly\.\d{8}\.\d+$/;
-// ForkHub builds carry the upstream version plus a `.fh.<owner>.<n>`
-// prerelease extension (e.g. `0.0.43-nightly.20260924.2187.fh.imbios.1`),
-// so the build advertises its provenance while keeping train ordering.
-const FORKHUB_VERSION_SUFFIX_PATTERN = /\.fh\.[a-z0-9-]+\.\d+$/;
+// ForkHub builds carry the upstream version plus a provenance prerelease
+// extension — `.fh.<owner>.<n>` after an existing prerelease part, or
+// `-fh.<owner>.<n>` on a bare base (e.g. `0.0.43-nightly.20260924.2187`
+// → `…2187.fh.imbios.1`, `0.0.42` → `0.0.42-fh.imbios.1`). The joiner
+// keeps the version valid semver: electron-builder mangles invalid ones
+// (`0.0.42.fh.imbios.1` once shipped as `0.0.4-2.fh.imbios.1`).
+const FORKHUB_VERSION_SUFFIX_PATTERN = /[-.]fh\.[a-z0-9-]+\.\d+$/;
 const NIGHTLY_OR_FORKHUB_VERSION_PATTERN =
-  /^[^-+]+-nightly\.\d{8}\.\d+(?:\.fh\.[a-z0-9-]+\.\d+)?$/;
+  /^[^-+]+-nightly\.\d{8}\.\d+(?:[-.]fh\.[a-z0-9-]+\.\d+)?$/;
 const PREVIEW_VERSION_PATTERN = /^[^-+]+-preview\.\d{8}\.\d+$/;
 
 export function isForkHubDerivedVersion(version: string): boolean {

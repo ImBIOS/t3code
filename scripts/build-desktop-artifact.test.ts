@@ -256,7 +256,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       resolveDesktopUpdateChannel("0.0.43-nightly.20260924.2187.fh.imbios.1"),
       "nightly",
     );
-    assert.equal(resolveDesktopUpdateChannel("0.0.42.fh.imbios.1"), "latest");
+    assert.equal(resolveDesktopUpdateChannel("0.0.42-fh.imbios.1"), "latest");
   });
 
   it("switches desktop packaging product names to nightly for nightly builds", () => {
