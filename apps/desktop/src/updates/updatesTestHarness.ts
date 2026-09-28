@@ -32,6 +32,7 @@ export interface UpdatesHarnessOptions {
   readonly stopBackend?: Effect.Effect<void>;
   readonly startBackend?: Effect.Effect<void>;
   readonly env?: Record<string, string | undefined>;
+  readonly appVersion?: string;
 }
 
 export function makeHarness(options: UpdatesHarnessOptions = {}) {
@@ -147,7 +148,7 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
     homeDirectory: `/tmp/t3-desktop-updates-home-${process.pid}`,
     platform: "darwin",
     processArch: "x64",
-    appVersion: "1.2.3",
+    appVersion: options.appVersion ?? "1.2.3",
     appPath: "/repo",
     isPackaged: true,
     resourcesPath: "/missing/resources",

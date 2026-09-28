@@ -489,6 +489,9 @@ export const make = Effect.gen(function* () {
   // closes that gap; failures leave trains unknown and never fail boot.
   const refreshForkHubTrainsOnBoot = Effect.gen(function* () {
     if (!isForkHubDerivedVersion(environment.appVersion)) return;
+    // Never touch a pinned home: an explicit T3CODE_HOME is always
+    // honored as-is, never migrated or imported into.
+    if (!environment.isImplicitHome) return;
     const settings = yield* desktopSettings.get;
     if (settings.forkhubHasStableTrain !== null || settings.forkhubHasNightlyTrain !== null) {
       return;
