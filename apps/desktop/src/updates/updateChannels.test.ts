@@ -5,8 +5,11 @@ import {
   isNightlyDesktopVersion,
   isVersionAllowedOnUpdateChannel,
   normalizeForkHubOwner,
+  resolveCatalogTrains,
   resolveDefaultDesktopUpdateChannel,
   resolveForkHubFeedConfig,
+  resolveMigratedUpdateTrack,
+  resolveVisibleUpdateTracks,
 } from "./updateChannels.ts";
 
 describe("updateChannels", () => {
@@ -86,5 +89,58 @@ describe("updateChannels", () => {
       "nightly",
     );
     expect(resolveDefaultDesktopUpdateChannel("0.0.42-fh.with-fh.1")).toBe("latest");
+  });
+
+  it("detects catalog trains from versioned updater tags only", () => {
+    expect(
+      resolveCatalogTrains([
+        { tag_name: "pingdotgg-t3code--v0.0.43-nightly.20260928.2375-fh1", draft: false },
+        { tag_name: "v0.0.43-nightly.20260928.2375.fh.with-fh.1", draft: false },
+        { tag_name: "v0.0.42-fh.with-fh.1", draft: false },
+      ]),
+    ).toEqual({ hasStableTrain: true, hasNightlyTrain: true });
+    expect(resolveCatalogTrains([{ tag_name: "v0.0.43-nightly.20260928.2375.fh.with-fh.1" }])).toEqual(
+      { hasStableTrain: false, hasNightlyTrain: true },
+    );
+    expect(
+      resolveCatalogTrains([
+        { tag_name: "v0.0.41-preview.20260914.1683" },
+        { tag_name: "pingdotgg-t3code--v9.9.9-fh1" },
+        { tag_name: "v1.0.0-pr.1", draft: false },
+      ]),
+    ).toEqual({ hasStableTrain: false, hasNightlyTrain: false });
+    expect(resolveCatalogTrains([{ tag_name: "v1.0.0", draft: true }])).toEqual({
+      hasStableTrain: false,
+      hasNightlyTrain: false,
+    });
+    expect(resolveCatalogTrains("nope")).toEqual({ hasStableTrain: false, hasNightlyTrain: false });
+  });
+
+  it("only offers tracks the publisher serves", () => {
+    expect(resolveVisibleUpdateTracks({ hasStableTrain: null, hasNightlyTrain: null })).toEqual([
+      "latest",
+      "nightly",
+    ]);
+    expect(resolveVisibleUpdateTracks({ hasStableTrain: false, hasNightlyTrain: true })).toEqual([
+      "nightly",
+    ]);
+    expect(resolveVisibleUpdateTracks({ hasStableTrain: true, hasNightlyTrain: false })).toEqual([
+      "latest",
+    ]);
+  });
+
+  it("migrates the track when the publisher drops it", () => {
+    expect(
+      resolveMigratedUpdateTrack("latest", { hasStableTrain: true, hasNightlyTrain: true }),
+    ).toBe("latest");
+    expect(
+      resolveMigratedUpdateTrack("latest", { hasStableTrain: false, hasNightlyTrain: true }),
+    ).toBe("nightly");
+    expect(
+      resolveMigratedUpdateTrack("nightly", { hasStableTrain: true, hasNightlyTrain: false }),
+    ).toBe("latest");
+    expect(
+      resolveMigratedUpdateTrack("nightly", { hasStableTrain: false, hasNightlyTrain: true }),
+    ).toBe("nightly");
   });
 });

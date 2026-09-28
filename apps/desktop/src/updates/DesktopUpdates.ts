@@ -37,7 +37,10 @@ import {
   isForkHubDerivedVersion,
   isVersionAllowedOnUpdateChannel,
   normalizeForkHubOwner,
+  resolveCatalogTrains,
   resolveForkHubFeedConfig,
+  resolveMigratedUpdateTrack,
+  type ForkHubCatalogTrains,
 } from "./updateChannels.ts";
 import {
   createInitialDesktopUpdateState,
@@ -189,6 +192,8 @@ export class DesktopUpdates extends Context.Service<
     readonly setForkHubOwner: (input: {
       readonly owner: string;
       readonly repo?: DesktopForkHubRepo | undefined;
+      readonly hasStableTrain?: boolean | undefined;
+      readonly hasNightlyTrain?: boolean | undefined;
     }) => Effect.Effect<DesktopUpdateState, DesktopUpdateSetChannelError>;
     readonly check: (reason: string) => Effect.Effect<DesktopUpdateCheckResult>;
     readonly download: Effect.Effect<DesktopUpdateActionResult>;
@@ -224,13 +229,20 @@ function createBaseUpdateState(
   channel: DesktopUpdateChannel,
   enabled: boolean,
   environment: DesktopEnvironment.DesktopEnvironment["Service"],
-  forkhub?: { owner: string; repo: DesktopForkHubRepo },
+  forkhub?: {
+    owner: string;
+    repo: DesktopForkHubRepo;
+    hasStableTrain?: boolean | null;
+    hasNightlyTrain?: boolean | null;
+  },
 ): DesktopUpdateState {
   const owner = forkhub ? (normalizeForkHubOwner(forkhub.owner) ?? null) : null;
   return {
     ...createInitialDesktopUpdateState(environment.appVersion, environment.runtimeInfo, channel, {
       owner,
       repo: forkhub?.repo ?? null,
+      hasStableTrain: forkhub?.hasStableTrain ?? null,
+      hasNightlyTrain: forkhub?.hasNightlyTrain ?? null,
     }),
     enabled,
     status: enabled ? "idle" : "disabled",
@@ -239,6 +251,37 @@ function createBaseUpdateState(
 
 function getCanRetryFromState(state: DesktopUpdateState): boolean {
   return state.availableVersion !== null || state.downloadedVersion !== null;
+}
+
+// One unauthenticated catalog read: resolves which trains a publisher
+// serves so the Update track list narrows without a click. Best-effort.
+function fetchForkHubCatalogTrains(
+  owner: string,
+  repo: DesktopForkHubRepo,
+): Effect.Effect<ForkHubCatalogTrains, Error> {
+  return Effect.gen(function* () {
+    const response = yield* Effect.tryPromise({
+      try: () =>
+        fetch(
+          `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/releases?per_page=20`,
+          { headers: { Accept: "application/vnd.github+json" } },
+        ),
+      catch: (cause) =>
+        new Error(`Could not reach ${owner}/${repo} releases: ${String(cause)}.`, {
+          cause,
+        }),
+    });
+    if (!response.ok) {
+      return yield* Effect.fail(
+        new Error(`Could not check ${owner}/${repo} (HTTP ${response.status}).`),
+      );
+    }
+    const rows = yield* Effect.tryPromise({
+      try: () => response.json() as Promise<unknown>,
+      catch: (cause) => new Error(`Could not parse ${owner}/${repo} releases.`, { cause }),
+    });
+    return resolveCatalogTrains(rows);
+  }).pipe(Effect.timeout("15 seconds"));
 }
 
 function shouldBroadcastDownloadProgress(
@@ -439,6 +482,49 @@ export const make = Effect.gen(function* () {
   });
 
   const shouldEnableAutoUpdates = resolveDisabledReason.pipe(Effect.map(Option.isNone));
+
+  // Boot-time train discovery: a fresh ForkHub home knows its publisher
+  // (prefilled) but not its trains, so the Update track list would stay
+  // unfiltered until the first manual Check. One best-effort catalog read
+  // closes that gap; failures leave trains unknown and never fail boot.
+  const refreshForkHubTrainsOnBoot = Effect.gen(function* () {
+    if (!isForkHubDerivedVersion(environment.appVersion)) return;
+    const settings = yield* desktopSettings.get;
+    if (settings.forkhubHasStableTrain !== null || settings.forkhubHasNightlyTrain !== null) {
+      return;
+    }
+    const owner = normalizeForkHubOwner(settings.forkhubOwner);
+    if (!owner) return;
+    const trains = yield* fetchForkHubCatalogTrains(owner, settings.forkhubRepo).pipe(
+      Effect.catch((cause) =>
+        Effect.logWarning("ForkHub boot train discovery skipped", {
+          owner,
+          cause: String(cause),
+        }).pipe(Effect.as(null)),
+      ),
+    );
+    if (!trains || (!trains.hasStableTrain && !trains.hasNightlyTrain)) {
+      if (trains) {
+        yield* Effect.logWarning("ForkHub publisher serves no train; leaving tracks unfiltered", {
+          owner,
+        });
+      }
+      return;
+    }
+    yield* desktopSettings
+      .setForkHubOwner({ owner, repo: settings.forkhubRepo, ...trains })
+      .pipe(Effect.ignore);
+    yield* Effect.logInfo("ForkHub boot train discovery finished", { owner, ...trains });
+    const trained = yield* desktopSettings.get;
+    const track = resolveMigratedUpdateTrack(trained.updateChannel, trains);
+    if (track !== trained.updateChannel) {
+      yield* desktopSettings.setUpdateChannel(track).pipe(Effect.ignore);
+      yield* Effect.logInfo("ForkHub boot migrated update track to a publisher-served train", {
+        from: trained.updateChannel,
+        to: track,
+      });
+    }
+  });
 
   const checkForUpdates = Effect.fn("desktop.updates.checkForUpdates")(function* (
     reason: string,
@@ -935,10 +1021,14 @@ export const make = Effect.gen(function* () {
 
       const settings = yield* desktopSettings.get;
       const enabled = yield* shouldEnableAutoUpdates;
+      yield* refreshForkHubTrainsOnBoot;
+      const trainedSettings = yield* desktopSettings.get;
       yield* setState(
-        createBaseUpdateState(settings.updateChannel, enabled, environment, {
-          owner: settings.forkhubOwner,
-          repo: settings.forkhubRepo,
+        createBaseUpdateState(trainedSettings.updateChannel, enabled, environment, {
+          owner: trainedSettings.forkhubOwner,
+          repo: trainedSettings.forkhubRepo,
+          hasStableTrain: trainedSettings.forkhubHasStableTrain,
+          hasNightlyTrain: trainedSettings.forkhubHasNightlyTrain,
         }),
       );
       if (!enabled) {
@@ -948,9 +1038,9 @@ export const make = Effect.gen(function* () {
 
       yield* electronUpdater.setAutoDownload(false);
       yield* electronUpdater.setAutoInstallOnAppQuit(false);
-      yield* applyAutoUpdaterChannel(settings.updateChannel, {
-        owner: settings.forkhubOwner,
-        repo: settings.forkhubRepo,
+      yield* applyAutoUpdaterChannel(trainedSettings.updateChannel, {
+        owner: trainedSettings.forkhubOwner,
+        repo: trainedSettings.forkhubRepo,
       });
       yield* electronUpdater.setDisableDifferentialDownload(
         isArm64HostRunningIntelBuild(environment.runtimeInfo),
@@ -1019,6 +1109,8 @@ export const make = Effect.gen(function* () {
           createBaseUpdateState(nextChannel, enabled, environment, {
             owner: settings.forkhubOwner,
             repo: settings.forkhubRepo,
+            hasStableTrain: settings.forkhubHasStableTrain,
+            hasNightlyTrain: settings.forkhubHasNightlyTrain,
           }),
         );
 
@@ -1041,6 +1133,8 @@ export const make = Effect.gen(function* () {
     setForkHubOwner: Effect.fn("desktop.updates.setForkHubOwner")(function* (input: {
       readonly owner: string;
       readonly repo?: DesktopForkHubRepo | undefined;
+      readonly hasStableTrain?: boolean | undefined;
+      readonly hasNightlyTrain?: boolean | undefined;
     }) {
       const owner = normalizeForkHubOwner(input.owner);
       const state = yield* Ref.get(updateStateRef);
@@ -1065,10 +1159,46 @@ export const make = Effect.gen(function* () {
           ),
         );
         const settings = yield* desktopSettings.get;
+        const hasStableTrain = input.hasStableTrain ?? settings.forkhubHasStableTrain;
+        const hasNightlyTrain = input.hasNightlyTrain ?? settings.forkhubHasNightlyTrain;
+        // The new publisher may not serve the selected track (e.g. moving
+        // to a nightly-only catalog while on stable): migrate to a
+        // supported one instead of polling an empty feed.
+        const track =
+          hasStableTrain !== null && hasNightlyTrain !== null
+            ? resolveMigratedUpdateTrack(settings.updateChannel, {
+                hasStableTrain,
+                hasNightlyTrain,
+              })
+            : settings.updateChannel;
+        if (track !== settings.updateChannel) {
+          yield* desktopSettings.setUpdateChannel(track).pipe(Effect.ignore);
+          yield* logUpdaterInfo("migrated update track to a publisher-served train", {
+            from: settings.updateChannel,
+            to: track,
+            owner,
+          });
+        }
+        yield* desktopSettings
+          .setForkHubOwner({
+            owner,
+            repo,
+            hasStableTrain: hasStableTrain ?? undefined,
+            hasNightlyTrain: hasNightlyTrain ?? undefined,
+          })
+          .pipe(
+            Effect.mapError(
+              (cause) => new DesktopUpdateChannelPersistenceError({ channel: state.channel, cause }),
+            ),
+          );
+        const next = yield* desktopSettings.get;
         const nextState: DesktopUpdateState = {
           ...state,
+          channel: track,
           forkhubOwner: owner,
           forkhubRepo: repo,
+          forkhubHasStableTrain: hasStableTrain,
+          forkhubHasNightlyTrain: hasNightlyTrain,
         };
         yield* setState(nextState);
         // On a ForkHub build, repoint the feed immediately so the next
@@ -1076,9 +1206,9 @@ export const make = Effect.gen(function* () {
         // base state drops any staged download: it came from another
         // publisher's feed and must not install under the new one.
         if (isForkHubDerivedVersion(environment.appVersion) && (yield* Ref.get(updaterConfiguredRef))) {
-          yield* applyAutoUpdaterChannel(settings.updateChannel, { owner, repo });
+          yield* applyAutoUpdaterChannel(track, { owner, repo });
           const enabled = yield* shouldEnableAutoUpdates;
-          yield* setState(createBaseUpdateState(settings.updateChannel, enabled, environment, { owner, repo }));
+          yield* setState(createBaseUpdateState(track, enabled, environment, { owner, repo, hasStableTrain, hasNightlyTrain }));
         }
         return yield* Ref.get(updateStateRef);
       });

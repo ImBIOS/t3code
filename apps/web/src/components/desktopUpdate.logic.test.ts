@@ -12,6 +12,7 @@ import {
   getDesktopUpdateReleaseUrl,
   isDesktopUpdateButtonDisabled,
   resolveDesktopUpdateButtonAction,
+  resolveVisibleUpdateTracks,
   shouldShowArm64IntelBuildWarning,
   shouldToastDesktopUpdateActionResult,
 } from "./desktopUpdate.logic";
@@ -23,6 +24,9 @@ const baseState: DesktopUpdateState = {
   isForkHubBuild: false,
   forkhubOwner: null,
   forkhubRepo: null,
+  forkhubHasStableTrain: null,
+  forkhubHasNightlyTrain: null,
+
   currentVersion: "1.0.0",
   hostArch: "x64",
   appArch: "x64",
@@ -368,5 +372,23 @@ describe("getDesktopUpdateButtonTooltip", () => {
     expect(getDesktopUpdateButtonTooltip({ ...baseState, status: "up-to-date" })).toBe(
       "Up to date",
     );
+  });
+});
+
+describe("resolveVisibleUpdateTracks", () => {
+  it("offers both tracks when trains are unknown", () => {
+    expect(
+      resolveVisibleUpdateTracks({ forkhubHasStableTrain: null, forkhubHasNightlyTrain: null }),
+    ).toEqual(["latest", "nightly"]);
+    expect(resolveVisibleUpdateTracks(null)).toEqual(["latest", "nightly"]);
+  });
+
+  it("narrows to the publisher's trains", () => {
+    expect(
+      resolveVisibleUpdateTracks({ forkhubHasStableTrain: false, forkhubHasNightlyTrain: true }),
+    ).toEqual(["nightly"]);
+    expect(
+      resolveVisibleUpdateTracks({ forkhubHasStableTrain: true, forkhubHasNightlyTrain: false }),
+    ).toEqual(["latest"]);
   });
 });

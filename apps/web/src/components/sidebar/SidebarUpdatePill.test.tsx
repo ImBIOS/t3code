@@ -14,6 +14,9 @@ const nightlyState: DesktopUpdateState = {
   isForkHubBuild: false,
   forkhubOwner: null,
   forkhubRepo: null,
+  forkhubHasStableTrain: null,
+  forkhubHasNightlyTrain: null,
+
   currentVersion: "0.0.35",
   hostArch: "arm64",
   appArch: "arm64",

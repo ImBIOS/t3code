@@ -46,6 +46,9 @@ function downloadedState(overrides: Partial<DesktopUpdateState> = {}): DesktopUp
     isForkHubBuild: false,
     forkhubOwner: null,
     forkhubRepo: null,
+    forkhubHasStableTrain: null,
+    forkhubHasNightlyTrain: null,
+
     currentVersion: "0.0.29",
     hostArch: "arm64",
     appArch: "arm64",

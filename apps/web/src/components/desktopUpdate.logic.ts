@@ -1,4 +1,8 @@
-import type { DesktopUpdateActionResult, DesktopUpdateState } from "@t3tools/contracts";
+import type {
+  DesktopUpdateActionResult,
+  DesktopUpdateChannel,
+  DesktopUpdateState,
+} from "@t3tools/contracts";
 
 export type DesktopUpdateButtonAction = "download" | "install" | "none";
 
@@ -23,6 +27,21 @@ export function getDesktopUpdateReleaseUrl(version: string | null): string | nul
 
 export function getDesktopUpdateReleaseHistoryUrl(): string {
   return DESKTOP_RELEASE_HISTORY_URL;
+}
+
+/**
+ * Which tracks the Update track selector offers. Unknown trains (never
+ * Checked) leave both; a publisher serving one train narrows the list —
+ * e.g. with-fh serves nightly only, so its installs offer just Nightly.
+ */
+export function resolveVisibleUpdateTracks(state: {
+  readonly forkhubHasStableTrain: boolean | null;
+  readonly forkhubHasNightlyTrain: boolean | null;
+} | null): ReadonlyArray<DesktopUpdateChannel> {
+  const tracks: Array<DesktopUpdateChannel> = [];
+  if (state?.forkhubHasStableTrain !== false) tracks.push("latest");
+  if (state?.forkhubHasNightlyTrain !== false) tracks.push("nightly");
+  return tracks;
 }
 
 /**

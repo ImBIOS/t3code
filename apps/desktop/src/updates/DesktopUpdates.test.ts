@@ -786,12 +786,21 @@ describe("DesktopUpdates", () => {
         const updates = yield* DesktopUpdates.DesktopUpdates;
         yield* updates.configure;
 
-        const state = yield* updates.setForkHubOwner({ owner: "with-fh" });
+        const state = yield* updates.setForkHubOwner({
+          owner: "with-fh",
+          hasStableTrain: false,
+          hasNightlyTrain: true,
+        });
 
         assert.equal(state.forkhubOwner, "with-fh");
-        assert.equal(state.channel, "latest");
-        assert.equal((yield* settings.get).forkhubOwner, "with-fh");
-        assert.equal((yield* updates.getState).channel, "latest");
+        assert.equal(state.forkhubHasStableTrain, false);
+        assert.equal(state.forkhubHasNightlyTrain, true);
+        // Latest is unsupported by a nightly-only publisher: migrate.
+        assert.equal(state.channel, "nightly");
+        const persisted = yield* settings.get;
+        assert.equal(persisted.forkhubOwner, "with-fh");
+        assert.equal(persisted.updateChannel, "nightly");
+        assert.equal((yield* updates.getState).channel, "nightly");
       }),
     ).pipe(Effect.provide(Layer.merge(TestClock.layer(), harness.layer)));
   });

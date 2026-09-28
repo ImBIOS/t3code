@@ -431,6 +431,9 @@ describe("DesktopTelemetryPublisher", () => {
             isForkHubBuild: false,
             forkhubOwner: null,
             forkhubRepo: null,
+            forkhubHasStableTrain: null,
+            forkhubHasNightlyTrain: null,
+
             currentVersion: "1.2.3",
             hostArch: "arm64",
             appArch: "arm64",

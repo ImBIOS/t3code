@@ -37,6 +37,8 @@ export const setForkHubOwner = DesktopIpc.makeIpcMethod({
   payload: Schema.Struct({
     owner: Schema.String,
     repo: Schema.optional(DesktopForkHubRepoSchema),
+    hasStableTrain: Schema.optional(Schema.Boolean),
+    hasNightlyTrain: Schema.optional(Schema.Boolean),
   }),
   result: DesktopUpdateStateSchema,
   handler: Effect.fn("desktop.ipc.updates.setForkHubOwner")(function* (input) {

@@ -46,6 +46,11 @@ export interface DesktopSettings {
   // catalog publisher on ForkHub builds, empty on stock.
   readonly forkhubOwner: string;
   readonly forkhubRepo: DesktopForkHubRepo;
+  // Trains the publisher's catalog serves (null = never checked). Persisted
+  // on every Check and the boot-time auto-check; the Update track selector
+  // only offers supported trains.
+  readonly forkhubHasStableTrain: boolean | null;
+  readonly forkhubHasNightlyTrain: boolean | null;
   // Was a "local" | "wsl" swap mode in an earlier iteration of the WSL
   // integration. We now run Windows and WSL backends side by side, so the
   // setting is just whether the WSL backend should be running alongside the
@@ -97,6 +102,8 @@ export const DEFAULT_DESKTOP_SETTINGS: DesktopSettings = {
   updateChannelConfiguredByUser: false,
   forkhubOwner: "",
   forkhubRepo: ".forkhub",
+  forkhubHasStableTrain: null,
+  forkhubHasNightlyTrain: null,
   wslBackendEnabled: false,
   wslDistro: null,
   wslOnly: false,
@@ -126,6 +133,8 @@ const DesktopSettingsDocument = Schema.Struct({
   updateChannelConfiguredByUser: Schema.optionalKey(Schema.Boolean),
   forkhubOwner: Schema.optionalKey(Schema.String),
   forkhubRepo: Schema.optionalKey(DesktopForkHubRepoSchema),
+  forkhubHasStableTrain: Schema.optionalKey(Schema.NullOr(Schema.Boolean)),
+  forkhubHasNightlyTrain: Schema.optionalKey(Schema.NullOr(Schema.Boolean)),
   // Newer form of the WSL toggle. `wslMode` is still accepted on load so
   // existing on-disk settings keep working; on the next persist we write the
   // new boolean and the legacy key drops out.
@@ -196,6 +205,8 @@ export class DesktopAppSettings extends Context.Service<
     readonly setForkHubOwner: (input: {
       readonly owner: string;
       readonly repo?: DesktopForkHubRepo | undefined;
+      readonly hasStableTrain?: boolean | undefined;
+      readonly hasNightlyTrain?: boolean | undefined;
     }) => Effect.Effect<DesktopSettingsChange, DesktopSettingsWriteError>;
     readonly setWslBackendEnabled: (
       enabled: boolean,
@@ -278,6 +289,8 @@ function normalizeDesktopSettingsDocument(
     updateChannelConfiguredByUser,
     forkhubOwner: normalizeForkHubOwner(parsed.forkhubOwner) ?? defaultSettings.forkhubOwner,
     forkhubRepo: parsed.forkhubRepo === ".forkhub" ? parsed.forkhubRepo : ".forkhub",
+    forkhubHasStableTrain: normalizeOptionalBoolean(parsed.forkhubHasStableTrain),
+    forkhubHasNightlyTrain: normalizeOptionalBoolean(parsed.forkhubHasNightlyTrain),
     wslBackendEnabled,
     wslDistro: normalizeWslDistro(parsed.wslDistro),
     wslOnly: parsed.wslOnly === true,
@@ -323,6 +336,12 @@ function toDesktopSettingsDocument(
   }
   if (settings.forkhubRepo !== defaults.forkhubRepo) {
     document.forkhubRepo = settings.forkhubRepo;
+  }
+  if (settings.forkhubHasStableTrain !== defaults.forkhubHasStableTrain) {
+    document.forkhubHasStableTrain = settings.forkhubHasStableTrain;
+  }
+  if (settings.forkhubHasNightlyTrain !== defaults.forkhubHasNightlyTrain) {
+    document.forkhubHasNightlyTrain = settings.forkhubHasNightlyTrain;
   }
   if (settings.wslBackendEnabled !== defaults.wslBackendEnabled) {
     document.wslBackendEnabled = settings.wslBackendEnabled;
@@ -397,13 +416,33 @@ function setUpdateChannel(
 
 function setForkHubOwner(
   settings: DesktopSettings,
-  input: { readonly owner: string; readonly repo?: DesktopForkHubRepo | undefined },
+  input: {
+    readonly owner: string;
+    readonly repo?: DesktopForkHubRepo | undefined;
+    readonly hasStableTrain?: boolean | undefined;
+    readonly hasNightlyTrain?: boolean | undefined;
+  },
 ): DesktopSettings {
   const owner = normalizeForkHubOwner(input.owner) ?? "";
   const repo = input.repo ?? settings.forkhubRepo;
-  return settings.forkhubOwner === owner && settings.forkhubRepo === repo
+  const hasStableTrain = input.hasStableTrain ?? settings.forkhubHasStableTrain;
+  const hasNightlyTrain = input.hasNightlyTrain ?? settings.forkhubHasNightlyTrain;
+  return settings.forkhubOwner === owner &&
+    settings.forkhubRepo === repo &&
+    settings.forkhubHasStableTrain === hasStableTrain &&
+    settings.forkhubHasNightlyTrain === hasNightlyTrain
     ? settings
-    : { ...settings, forkhubOwner: owner, forkhubRepo: repo };
+    : {
+        ...settings,
+        forkhubOwner: owner,
+        forkhubRepo: repo,
+        forkhubHasStableTrain: hasStableTrain,
+        forkhubHasNightlyTrain: hasNightlyTrain,
+      };
+}
+
+function normalizeOptionalBoolean(value: unknown): boolean | null {
+  return typeof value === "boolean" ? value : null;
 }
 
 function setWslBackendEnabled(settings: DesktopSettings, enabled: boolean): DesktopSettings {

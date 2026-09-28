@@ -12,6 +12,9 @@ const baseState: DesktopUpdateState = {
   isForkHubBuild: false,
   forkhubOwner: null,
   forkhubRepo: null,
+  forkhubHasStableTrain: null,
+  forkhubHasNightlyTrain: null,
+
   currentVersion: "1.0.0",
   hostArch: "x64",
   appArch: "x64",

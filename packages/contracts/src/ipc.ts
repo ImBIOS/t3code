@@ -295,6 +295,10 @@ export interface DesktopUpdateState {
   isForkHubBuild: boolean;
   forkhubOwner: string | null;
   forkhubRepo: DesktopForkHubRepo | null;
+  // Trains the publisher's catalog serves, refreshed on every Check.
+  // Null means unknown (never checked): the track list stays unfiltered.
+  forkhubHasStableTrain: boolean | null;
+  forkhubHasNightlyTrain: boolean | null;
   currentVersion: string;
   hostArch: DesktopRuntimeArch;
   appArch: DesktopRuntimeArch;
@@ -329,6 +333,8 @@ export const DesktopUpdateStateSchema = Schema.Struct({
   isForkHubBuild: Schema.Boolean,
   forkhubOwner: Schema.NullOr(DesktopForkHubOwnerSchema),
   forkhubRepo: Schema.NullOr(DesktopForkHubRepoSchema),
+  forkhubHasStableTrain: Schema.NullOr(Schema.Boolean),
+  forkhubHasNightlyTrain: Schema.NullOr(Schema.Boolean),
   currentVersion: Schema.String,
   hostArch: DesktopRuntimeArchSchema,
   appArch: DesktopRuntimeArchSchema,
@@ -1258,6 +1264,8 @@ export interface DesktopBridge {
   setForkHubOwner: (input: {
     readonly owner: string;
     readonly repo?: DesktopForkHubRepo;
+    readonly hasStableTrain?: boolean;
+    readonly hasNightlyTrain?: boolean;
   }) => Promise<DesktopUpdateState>;
   checkForUpdate: () => Promise<DesktopUpdateCheckResult>;
   downloadUpdate: () => Promise<DesktopUpdateActionResult>;

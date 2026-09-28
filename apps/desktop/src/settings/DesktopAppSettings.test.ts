@@ -134,6 +134,9 @@ describe("DesktopSettings", () => {
         updateChannelConfiguredByUser: false,
         forkhubOwner: "",
         forkhubRepo: ".forkhub",
+        forkhubHasStableTrain: null,
+        forkhubHasNightlyTrain: null,
+
         wslBackendEnabled: false,
         wslOnly: false,
         wslDistro: null,
@@ -166,6 +169,9 @@ describe("DesktopSettings", () => {
           updateChannelConfiguredByUser: true,
           forkhubOwner: "",
           forkhubRepo: ".forkhub",
+          forkhubHasStableTrain: null,
+          forkhubHasNightlyTrain: null,
+
           wslBackendEnabled: false,
           wslOnly: false,
           wslDistro: null,
@@ -325,6 +331,39 @@ describe("DesktopSettings", () => {
     ),
   );
 
+  it.effect("persists publisher trains and normalizes them on load", () =>
+    withSettings(
+      Effect.gen(function* () {
+        const environment = yield* DesktopEnvironment.DesktopEnvironment;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const settings = yield* DesktopAppSettings.DesktopAppSettings;
+        yield* settings.setForkHubOwner({
+          owner: "with-fh",
+          hasStableTrain: false,
+          hasNightlyTrain: true,
+        });
+
+        const loaded = yield* settings.load;
+        assert.equal(loaded.forkhubHasStableTrain, false);
+        assert.equal(loaded.forkhubHasNightlyTrain, true);
+        const persisted = JSON.parse(
+          yield* fileSystem.readFileString(environment.desktopSettingsPath),
+        ) as Record<string, unknown>;
+        assert.equal(persisted["forkhubHasStableTrain"], false);
+        assert.equal(persisted["forkhubHasNightlyTrain"], true);
+
+        yield* fileSystem.writeFileString(
+          environment.desktopSettingsPath,
+          JSON.stringify({ forkhubHasStableTrain: "yes" }),
+        );
+        const renormalized = yield* settings.load;
+        assert.isNull(renormalized.forkhubHasStableTrain);
+        assert.isNull(renormalized.forkhubHasNightlyTrain);
+      }),
+      { appVersion: "0.0.43-nightly.20260928.2375.fh.with-fh.4" },
+    ),
+  );
+
   it.effect("loads lenient persisted desktop settings JSON", () =>
     withSettings(
       Effect.gen(function* () {
@@ -355,6 +394,9 @@ describe("DesktopSettings", () => {
           updateChannelConfiguredByUser: false,
           forkhubOwner: "",
           forkhubRepo: ".forkhub",
+          forkhubHasStableTrain: null,
+          forkhubHasNightlyTrain: null,
+
           wslBackendEnabled: false,
           wslOnly: false,
           wslDistro: null,
@@ -414,6 +456,9 @@ describe("DesktopSettings", () => {
             updateChannelConfiguredByUser: true,
             forkhubOwner: "",
             forkhubRepo: ".forkhub",
+            forkhubHasStableTrain: null,
+            forkhubHasNightlyTrain: null,
+
             wslBackendEnabled: false,
             wslOnly: false,
             wslDistro: null,
@@ -465,6 +510,9 @@ describe("DesktopSettings", () => {
           updateChannelConfiguredByUser: false,
           forkhubOwner: "",
           forkhubRepo: ".forkhub",
+          forkhubHasStableTrain: null,
+          forkhubHasNightlyTrain: null,
+
           wslBackendEnabled: false,
           wslOnly: false,
           wslDistro: null,
@@ -496,6 +544,9 @@ describe("DesktopSettings", () => {
           updateChannelConfiguredByUser: true,
           forkhubOwner: "",
           forkhubRepo: ".forkhub",
+          forkhubHasStableTrain: null,
+          forkhubHasNightlyTrain: null,
+
           wslBackendEnabled: false,
           wslOnly: false,
           wslDistro: null,
@@ -526,6 +577,9 @@ describe("DesktopSettings", () => {
           updateChannelConfiguredByUser: false,
           forkhubOwner: "",
           forkhubRepo: ".forkhub",
+          forkhubHasStableTrain: null,
+          forkhubHasNightlyTrain: null,
+
           wslBackendEnabled: false,
           wslOnly: false,
           wslDistro: null,

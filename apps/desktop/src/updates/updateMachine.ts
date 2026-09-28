@@ -21,7 +21,12 @@ export function createInitialDesktopUpdateState(
   currentVersion: string,
   runtimeInfo: DesktopRuntimeInfo,
   channel: DesktopUpdateChannel,
-  forkhub?: { owner: string | null; repo: DesktopUpdateState["forkhubRepo"] },
+  forkhub?: {
+    owner: string | null;
+    repo: DesktopUpdateState["forkhubRepo"];
+    hasStableTrain?: boolean | null;
+    hasNightlyTrain?: boolean | null;
+  },
 ): DesktopUpdateState {
   return {
     enabled: false,
@@ -30,6 +35,8 @@ export function createInitialDesktopUpdateState(
     isForkHubBuild: isForkHubDerivedVersion(currentVersion),
     forkhubOwner: forkhub?.owner ?? null,
     forkhubRepo: forkhub?.repo ?? null,
+    forkhubHasStableTrain: forkhub?.hasStableTrain ?? null,
+    forkhubHasNightlyTrain: forkhub?.hasNightlyTrain ?? null,
     currentVersion,
     hostArch: runtimeInfo.hostArch,
     appArch: runtimeInfo.appArch,

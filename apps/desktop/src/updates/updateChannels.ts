@@ -64,6 +64,66 @@ export function resolveForkHubFeedConfig(input: {
   return { provider: "github", owner, repo };
 }
 
+export interface ForkHubCatalogTrains {
+  readonly hasStableTrain: boolean;
+  readonly hasNightlyTrain: boolean;
+}
+
+interface CatalogReleaseRow {
+  readonly tag_name?: unknown;
+  readonly draft?: unknown;
+}
+
+// Train detection runs on versioned updater tags only (`vX.Y.Z…`): bundle
+// releases mirror the same trains and carry no version of their own.
+// Preview/PR cuts serve no train. Mirrors the renderer's Check classifier
+// (apps/web/src/components/forkHub.logic.ts) for boot-time use in main.
+export function resolveCatalogTrains(rows: unknown): ForkHubCatalogTrains {
+  const releases = Array.isArray(rows) ? rows.filter(isUsableCatalogRelease) : [];
+  const versionTags = releases
+    .map((row) => (row as CatalogReleaseRow).tag_name as string)
+    .filter((tag) => /^v\d+\.\d+\.\d+/.test(tag));
+  return {
+    hasStableTrain: versionTags.some(
+      (tag) =>
+        !/-nightly\.\d{8}\./.test(tag) &&
+        !/-preview\.\d{8}\./.test(tag) &&
+        !/-pr\./.test(tag),
+    ),
+    hasNightlyTrain: versionTags.some((tag) => /-nightly\.\d{8}\./.test(tag)),
+  };
+}
+
+function isUsableCatalogRelease(row: unknown): boolean {
+  if (typeof row !== "object" || row === null) return false;
+  const candidate = row as CatalogReleaseRow;
+  return candidate.draft !== true && typeof candidate.tag_name === "string";
+}
+
+// Which tracks the Update track selector offers. Unknown trains (never
+// Checked) leave both; a publisher serving one train narrows the list.
+export function resolveVisibleUpdateTracks(input: {
+  readonly hasStableTrain: boolean | null;
+  readonly hasNightlyTrain: boolean | null;
+}): ReadonlyArray<DesktopUpdateChannel> {
+  const tracks: Array<DesktopUpdateChannel> = [];
+  if (input.hasStableTrain !== false) tracks.push("latest");
+  if (input.hasNightlyTrain !== false) tracks.push("nightly");
+  return tracks;
+}
+
+// After a publisher (re-)check, the selected track may no longer exist
+// (e.g. moving to a nightly-only catalog while on stable). Migrate to a
+// supported track, preferring the current one and then nightly.
+export function resolveMigratedUpdateTrack(
+  current: DesktopUpdateChannel,
+  trains: ForkHubCatalogTrains,
+): DesktopUpdateChannel {
+  if (current === "latest" && trains.hasStableTrain) return "latest";
+  if (current === "nightly" && trains.hasNightlyTrain) return "nightly";
+  return trains.hasNightlyTrain ? "nightly" : "latest";
+}
+
 /**
  * Whether an updater-advertised version may be installed on a channel.
  * Provenance must match the install: a `.fh` build installs on ForkHub

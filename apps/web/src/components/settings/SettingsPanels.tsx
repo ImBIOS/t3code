@@ -56,6 +56,7 @@ import {
   getDesktopUpdateInstallConfirmationMessage,
   isDesktopUpdateButtonDisabled,
   resolveDesktopUpdateButtonAction,
+  resolveVisibleUpdateTracks,
 } from "../../components/desktopUpdate.logic";
 import {
   checkForkHubOwner,
@@ -293,6 +294,7 @@ function AboutVersionSection() {
   const selectedUpdateChannel = updateState?.channel ?? "latest";
   const selectedHostedAppChannel = hasDesktopBridge ? null : HOSTED_APP_CHANNEL;
   const isForkHubBuild = updateState?.isForkHubBuild ?? false;
+  const visibleUpdateTracks = resolveVisibleUpdateTracks(updateState);
   const storedForkhubOwner = updateState?.forkhubOwner ?? null;
   const storedForkhubRepo = updateState?.forkhubRepo ?? null;
   const forkhubOwnerValue = forkhubOwnerInput ?? storedForkhubOwner ?? "";
@@ -342,7 +344,12 @@ function AboutVersionSection() {
     setForkhubCheck({ status: "checking" });
     try {
       const check = await checkForkHubOwner(typed);
-      await bridge.setForkHubOwner({ owner: check.owner, repo: check.repo });
+      await bridge.setForkHubOwner({
+        owner: check.owner,
+        repo: check.repo,
+        hasStableTrain: check.hasStableTrain,
+        hasNightlyTrain: check.hasNightlyTrain,
+      });
       setForkhubOwnerInput(null);
       setForkhubCheck({ status: "valid", check });
       toastManager.add(
@@ -516,12 +523,16 @@ function AboutVersionSection() {
                   </SelectValue>
                 </SelectTrigger>
                 <SelectPopup align="end" alignItemWithTrigger={false}>
-                  <SelectItem hideIndicator value="latest">
-                    Stable
-                  </SelectItem>
-                  <SelectItem hideIndicator value="nightly">
-                    Nightly
-                  </SelectItem>
+                  {visibleUpdateTracks.includes("latest") ? (
+                    <SelectItem hideIndicator value="latest">
+                      Stable
+                    </SelectItem>
+                  ) : null}
+                  {visibleUpdateTracks.includes("nightly") ? (
+                    <SelectItem hideIndicator value="nightly">
+                      Nightly
+                    </SelectItem>
+                  ) : null}
                 </SelectPopup>
               </Select>
             }
