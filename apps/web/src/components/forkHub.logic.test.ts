@@ -28,8 +28,14 @@ describe("normalizeForkHubOwner", () => {
 describe("checkForkHubOwner", () => {
   it("accepts an owner with public .forkhub releases", async () => {
     const fetchImpl = vi.fn(async () => jsonResponse(200, [{ tag_name: "v1.0.0" }]));
-    const result = await checkForkHubOwner("ImBIOS", fetchImpl as unknown as typeof fetch);
-    expect(result).toMatchObject({ owner: "ImBIOS", repo: ".forkhub", latestTag: "v1.0.0" });
+    const result = await checkForkHubOwner("with-fh", fetchImpl as unknown as typeof fetch);
+    expect(result).toMatchObject({
+      owner: "with-fh",
+      repo: ".forkhub",
+      latestTag: "v1.0.0",
+      hasStableTrain: true,
+      hasNightlyTrain: false,
+    });
     expect(fetchImpl).toHaveBeenCalledOnce();
   });
 
@@ -37,12 +43,33 @@ describe("checkForkHubOwner", () => {
     const fetchImpl = vi.fn(async () =>
       jsonResponse(200, [
         { tag_name: "pingdotgg-t3code-v0.0.43-nightly.20260924.2187-fh1" },
-        { tag_name: "v0.0.43-nightly.20260924.2187.fh.imbios.1" },
+        { tag_name: "v0.0.43-nightly.20260924.2187.fh.with-fh.1" },
         { tag_name: "v0.0.42" },
       ]),
     );
-    const result = await checkForkHubOwner("ImBIOS", fetchImpl as unknown as typeof fetch);
-    expect(result.latestTag).toBe("v0.0.43-nightly.20260924.2187.fh.imbios.1");
+    const result = await checkForkHubOwner("with-fh", fetchImpl as unknown as typeof fetch);
+    expect(result.latestTag).toBe("v0.0.43-nightly.20260924.2187.fh.with-fh.1");
+    expect(result).toMatchObject({ hasStableTrain: true, hasNightlyTrain: true });
+  });
+
+  it("reports a nightly-only publisher", async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse(200, [{ tag_name: "v0.0.43-nightly.20260924.2187.fh.with-fh.1" }]),
+    );
+    const result = await checkForkHubOwner("with-fh", fetchImpl as unknown as typeof fetch);
+    expect(result).toMatchObject({ hasStableTrain: false, hasNightlyTrain: true });
+  });
+
+  it("rejects a publisher serving neither train", async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse(200, [
+        { tag_name: "pingdotgg-t3code-v0.0.43-nightly.20260924.2187-fh1" },
+        { tag_name: "v0.0.41-preview.20260914.1683" },
+      ]),
+    );
+    await expect(
+      checkForkHubOwner("ghost", fetchImpl as unknown as typeof fetch),
+    ).rejects.toThrow("neither the stable nor the nightly train");
   });
 
   it("rejects owners with no public catalog", async () => {

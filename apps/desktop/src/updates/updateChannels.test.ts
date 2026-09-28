@@ -40,34 +40,51 @@ describe("updateChannels", () => {
   });
 
   it("keeps each track on its own train", () => {
-    expect(isVersionAllowedOnUpdateChannel("1.2.3", "latest")).toBe(true);
-    expect(isVersionAllowedOnUpdateChannel("1.2.3", "forkhub")).toBe(true);
-    expect(isVersionAllowedOnUpdateChannel("1.2.3-nightly.20260911.1", "latest")).toBe(false);
-    // A ForkHub catalog may follow the nightly train: nightly-based builds
-    // install on ForkHub, preview cuts never do (they ship without a feed).
-    expect(isVersionAllowedOnUpdateChannel("1.2.3-nightly.20260911.1", "forkhub")).toBe(true);
-    expect(isVersionAllowedOnUpdateChannel("0.0.41-preview.20260911.7", "forkhub")).toBe(false);
-    expect(isVersionAllowedOnUpdateChannel("1.2.3-nightly.20260911.1", "nightly")).toBe(true);
-    expect(isVersionAllowedOnUpdateChannel("1.2.3", "nightly")).toBe(false);
-    expect(isVersionAllowedOnUpdateChannel("0.0.41-preview.20260911.7", "nightly")).toBe(false);
+    expect(isVersionAllowedOnUpdateChannel("1.2.3", "latest", false)).toBe(true);
+    expect(isVersionAllowedOnUpdateChannel("1.2.3-nightly.20260911.1", "latest", false)).toBe(
+      false,
+    );
+    expect(isVersionAllowedOnUpdateChannel("1.2.3-nightly.20260911.1", "nightly", false)).toBe(
+      true,
+    );
+    expect(isVersionAllowedOnUpdateChannel("1.2.3", "nightly", false)).toBe(false);
+    expect(isVersionAllowedOnUpdateChannel("0.0.41-preview.20260911.7", "nightly", false)).toBe(
+      false,
+    );
   });
 
-  it("gives ForkHub builds a provenance suffix that only ForkHub installs", () => {
-    expect(isForkHubDerivedVersion("0.0.43-nightly.20260924.2187.fh.imbios.1")).toBe(true);
-    expect(isForkHubDerivedVersion("0.0.42-fh.imbios.2")).toBe(true);
+  it("matches provenance to the install on ForkHub builds", () => {
+    expect(isForkHubDerivedVersion("0.0.43-nightly.20260924.2187.fh.with-fh.1")).toBe(true);
+    expect(isForkHubDerivedVersion("0.0.42-fh.with-fh.2")).toBe(true);
     expect(isForkHubDerivedVersion("0.0.43-nightly.20260924.2187")).toBe(false);
     expect(isForkHubDerivedVersion("0.0.42")).toBe(false);
+    // A ForkHub install follows its publisher's catalog on the selected
+    // track: nightly- and stable-based builds on either.
     expect(
-      isVersionAllowedOnUpdateChannel("0.0.43-nightly.20260924.2187.fh.imbios.1", "forkhub"),
+      isVersionAllowedOnUpdateChannel("0.0.43-nightly.20260924.2187.fh.with-fh.1", "nightly", true),
     ).toBe(true);
     expect(
-      isVersionAllowedOnUpdateChannel("0.0.43-nightly.20260924.2187.fh.imbios.1", "nightly"),
+      isVersionAllowedOnUpdateChannel("0.0.43-nightly.20260924.2187.fh.with-fh.1", "latest", true),
+    ).toBe(true);
+    expect(isVersionAllowedOnUpdateChannel("0.0.42-fh.with-fh.1", "latest", true)).toBe(true);
+    expect(isVersionAllowedOnUpdateChannel("0.0.42-fh.with-fh.1", "nightly", true)).toBe(true);
+    // Cross-provenance never installs: stock builds stay out of ForkHub
+    // installs, ForkHub builds stay out of stock installs.
+    expect(isVersionAllowedOnUpdateChannel("1.2.3", "latest", true)).toBe(false);
+    expect(isVersionAllowedOnUpdateChannel("1.2.3-nightly.20260911.1", "nightly", true)).toBe(
+      false,
+    );
+    expect(
+      isVersionAllowedOnUpdateChannel(
+        "0.0.43-nightly.20260924.2187.fh.with-fh.1",
+        "nightly",
+        false,
+      ),
     ).toBe(false);
-    expect(isVersionAllowedOnUpdateChannel("0.0.42-fh.imbios.1", "latest")).toBe(false);
-    expect(isVersionAllowedOnUpdateChannel("0.0.42-fh.imbios.1", "forkhub")).toBe(true);
-    expect(resolveDefaultDesktopUpdateChannel("0.0.43-nightly.20260924.2187.fh.imbios.1")).toBe(
+    expect(isVersionAllowedOnUpdateChannel("0.0.42-fh.with-fh.1", "latest", false)).toBe(false);
+    expect(resolveDefaultDesktopUpdateChannel("0.0.43-nightly.20260924.2187.fh.with-fh.1")).toBe(
       "nightly",
     );
-    expect(resolveDefaultDesktopUpdateChannel("0.0.42-fh.imbios.1")).toBe("latest");
+    expect(resolveDefaultDesktopUpdateChannel("0.0.42-fh.with-fh.1")).toBe("latest");
   });
 });

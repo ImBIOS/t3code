@@ -20,6 +20,7 @@ const baseState: DesktopUpdateState = {
   enabled: true,
   status: "idle",
   channel: "latest",
+  isForkHubBuild: false,
   forkhubOwner: null,
   forkhubRepo: null,
   currentVersion: "1.0.0",
@@ -278,10 +279,10 @@ describe("desktop update UI helpers", () => {
     expect(
       getDesktopUpdateErrorMessage(
         new Error(
-          "Error invoking remote method 'desktop:update-set-channel': DesktopForkHubOwnerMissingError: Set a ForkHub profile or org before switching to the ForkHub track.",
+          "Error invoking remote method 'desktop:update-set-forkhub-owner': DesktopUpdateChannelPersistenceError: Failed to persist the nightly desktop update channel.",
         ),
       ),
-    ).toBe("Set a ForkHub profile or org before switching to the ForkHub track.");
+    ).toBe("Failed to persist the nightly desktop update channel.");
     expect(
       getDesktopUpdateErrorMessage(
         new Error(

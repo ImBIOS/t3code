@@ -16,6 +16,7 @@ function makeState(overrides: Partial<DesktopUpdateState> = {}): DesktopUpdateSt
     enabled: true,
     status: "idle",
     channel: "latest",
+    isForkHubBuild: false,
     forkhubOwner: null,
     forkhubRepo: null,
     currentVersion: "1.2.3",

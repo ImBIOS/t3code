@@ -26,30 +26,30 @@ export function getDesktopUpdateReleaseHistoryUrl(): string {
 }
 
 /**
- * ForkHub installs update from another account's `.forkhub` releases, so
+ * ForkHub builds update from a publisher's `.forkhub` releases, so
  * release links must point at that repo instead of upstream.
  */
 export function getForkHubUpdateReleaseUrl(
-  state: Pick<DesktopUpdateState, "channel" | "forkhubOwner" | "forkhubRepo">,
+  state: Pick<DesktopUpdateState, "isForkHubBuild" | "forkhubOwner" | "forkhubRepo">,
   version: string | null,
 ): string | null {
-  if (state.channel !== "forkhub" || !state.forkhubOwner) return null;
+  if (!state.isForkHubBuild || !state.forkhubOwner) return null;
   const normalizedVersion = version?.trim();
   if (!normalizedVersion) return null;
   return `https://github.com/${state.forkhubOwner}/${state.forkhubRepo ?? ".forkhub"}/releases/tag/v${encodeURIComponent(normalizedVersion)}`;
 }
 
 export function getDesktopUpdateReleaseUrlForState(
-  state: Pick<DesktopUpdateState, "channel" | "forkhubOwner" | "forkhubRepo">,
+  state: Pick<DesktopUpdateState, "isForkHubBuild" | "forkhubOwner" | "forkhubRepo">,
   version: string | null,
 ): string | null {
   return getForkHubUpdateReleaseUrl(state, version) ?? getDesktopUpdateReleaseUrl(version);
 }
 
 export function getDesktopUpdateReleaseHistoryUrlForState(
-  state: Pick<DesktopUpdateState, "channel" | "forkhubOwner" | "forkhubRepo"> | null,
+  state: Pick<DesktopUpdateState, "isForkHubBuild" | "forkhubOwner" | "forkhubRepo"> | null,
 ): string {
-  if (state?.channel === "forkhub" && state.forkhubOwner) {
+  if (state?.isForkHubBuild && state.forkhubOwner) {
     return `https://github.com/${state.forkhubOwner}/${state.forkhubRepo ?? ".forkhub"}/releases`;
   }
   return DESKTOP_RELEASE_HISTORY_URL;

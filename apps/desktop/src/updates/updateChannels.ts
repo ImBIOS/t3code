@@ -1,4 +1,5 @@
 import type { DesktopForkHubRepo, DesktopUpdateChannel } from "@t3tools/contracts";
+import { DEFAULT_FORKHUB_PUBLISHER } from "@t3tools/contracts";
 
 const NIGHTLY_VERSION_PATTERN = /^[^-+]+-nightly\.\d{8}\.\d+$/;
 // ForkHub builds carry the upstream version plus a provenance prerelease
@@ -10,7 +11,6 @@ const NIGHTLY_VERSION_PATTERN = /^[^-+]+-nightly\.\d{8}\.\d+$/;
 const FORKHUB_VERSION_SUFFIX_PATTERN = /[-.]fh\.[a-z0-9-]+\.\d+$/;
 const NIGHTLY_OR_FORKHUB_VERSION_PATTERN =
   /^[^-+]+-nightly\.\d{8}\.\d+(?:[-.]fh\.[a-z0-9-]+\.\d+)?$/;
-const PREVIEW_VERSION_PATTERN = /^[^-+]+-preview\.\d{8}\.\d+$/;
 
 export function isForkHubDerivedVersion(version: string): boolean {
   return FORKHUB_VERSION_SUFFIX_PATTERN.test(version);
@@ -32,11 +32,17 @@ export function resolveDefaultDesktopUpdateChannel(appVersion: string): DesktopU
   return NIGHTLY_OR_FORKHUB_VERSION_PATTERN.test(appVersion) ? "nightly" : "latest";
 }
 
-// ForkHub: the updater channel is another GitHub profile/org's public
-// `.forkhub` releases. The owner input is validated against the GitHub
+// ForkHub: the updater feed is a publisher's public `.forkhub` releases,
+// selected by the version provenance (`.fh.<owner>.<n>`), not by channel.
+// The track stays latest/nightly and picks which train of the publisher's
+// catalog to follow; the owner input is validated against the GitHub
 // Releases API before the feed is pointed at it; see
 // apps/web/src/components/forkHub.logic.ts.
 export const FORKHUB_UPDATE_REPOS: ReadonlyArray<DesktopForkHubRepo> = [".forkhub"];
+
+// Publisher prefilled for fresh ForkHub homes. The catalog org publishes
+// the builds; anyone can point at their own publisher instead.
+export { DEFAULT_FORKHUB_PUBLISHER };
 
 const FORKHUB_OWNER_PATTERN = /^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$/;
 
@@ -60,19 +66,19 @@ export function resolveForkHubFeedConfig(input: {
 
 /**
  * Whether an updater-advertised version may be installed on a channel.
- * Stock tracks take stock builds only: a `.fh` build must never flow into
- * `latest` or `nightly`. ForkHub follows whatever its publisher's catalog
- * serves (stable and/or nightly-based builds, suffixed or not) — everything
- * except preview/PR cuts, which ship without a feed. Unknown future
- * channels fail closed.
+ * Provenance must match the install: a `.fh` build installs on ForkHub
+ * builds only (on either track — the publisher's catalog serves both
+ * trains), and stock builds never flow into a ForkHub install. Stock
+ * tracks keep stock train rules. Unknown future channels fail closed.
  */
 export function isVersionAllowedOnUpdateChannel(
   version: string,
   channel: DesktopUpdateChannel,
+  isForkHubBuild: boolean,
 ): boolean {
-  if (isForkHubDerivedVersion(version)) return channel === "forkhub";
+  if (isForkHubDerivedVersion(version)) return isForkHubBuild;
+  if (isForkHubBuild) return false;
   if (channel === "nightly") return NIGHTLY_VERSION_PATTERN.test(version);
   if (channel === "latest") return resolveDefaultDesktopUpdateChannel(version) === "latest";
-  if (channel === "forkhub") return !PREVIEW_VERSION_PATTERN.test(version) && !/-pr\./.test(version);
   return false;
 }

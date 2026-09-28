@@ -2583,15 +2583,9 @@ export function resolveDesktopWebAssetBrand(version: string): WebAssetBrand {
 }
 
 export function resolveDesktopBuildIconAssets(version: string): DesktopBuildIconAssets {
-  // ForkHub keeps its own identity on every train: a nightly-based ForkHub
-  // build must not wear upstream nightly's icons.
-  if (isForkHubDesktopBuild()) {
-    return {
-      macIconPng: BRAND_ASSET_PATHS.productionMacIconPng,
-      linuxIconPng: BRAND_ASSET_PATHS.productionLinuxIconPng,
-      windowsIconIco: BRAND_ASSET_PATHS.productionWindowsIconIco,
-    };
-  }
+  // Icons follow the train: a nightly-based ForkHub build wears nightly's
+  // icons, a stable-based one wears production's. The ForkHub identity
+  // lives in the product name and in-app brand, not the icon.
   if (resolveDesktopUpdateChannel(version) === "nightly") {
     return {
       macIconPng: BRAND_ASSET_PATHS.nightlyMacIconPng,

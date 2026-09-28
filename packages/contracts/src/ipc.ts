@@ -85,7 +85,7 @@ export type DesktopUpdateStatus =
 
 export type DesktopRuntimeArch = "arm64" | "x64" | "other";
 export type DesktopTheme = "light" | "dark" | "system";
-export type DesktopUpdateChannel = "latest" | "nightly" | "forkhub";
+export type DesktopUpdateChannel = "latest" | "nightly";
 export type DesktopAppStageLabel = "Alpha" | "Dev" | "Nightly";
 
 export const DesktopUpdateStatusSchema = Schema.Literals([
@@ -100,9 +100,12 @@ export const DesktopUpdateStatusSchema = Schema.Literals([
 ]);
 export const DesktopRuntimeArchSchema = Schema.Literals(["arm64", "x64", "other"]);
 export const DesktopThemeSchema = Schema.Literals(["light", "dark", "system"]);
-export const DesktopUpdateChannelSchema = Schema.Literals(["latest", "nightly", "forkhub"]);
-// GitHub profile or org that owns the `.forkhub` intent repo whose
-// Releases are the updater channel for ForkHub builds.
+export const DesktopUpdateChannelSchema = Schema.Literals(["latest", "nightly"]);
+// GitHub profile or org that publishes the `.forkhub` catalog a ForkHub
+// build updates from. ForkHub builds are ForkHub by provenance (version
+// suffix), not by channel: the track stays latest/nightly and selects which
+// train of the publisher's catalog to follow.
+export const DEFAULT_FORKHUB_PUBLISHER = "with-fh";
 export const DesktopForkHubOwnerSchema = Schema.String.check(
   Schema.isMinLength(1),
   Schema.isMaxLength(39),
@@ -286,6 +289,10 @@ export interface DesktopUpdateState {
   enabled: boolean;
   status: DesktopUpdateStatus;
   channel: DesktopUpdateChannel;
+  // True for provenance-suffixed (.fh.<owner>.<n>) builds: they poll the
+  // publisher's `.forkhub` catalog on the selected track instead of the
+  // stock feeds, and the renderer shows publisher controls.
+  isForkHubBuild: boolean;
   forkhubOwner: string | null;
   forkhubRepo: DesktopForkHubRepo | null;
   currentVersion: string;
@@ -319,6 +326,7 @@ export const DesktopUpdateStateSchema = Schema.Struct({
   enabled: Schema.Boolean,
   status: DesktopUpdateStatusSchema,
   channel: DesktopUpdateChannelSchema,
+  isForkHubBuild: Schema.Boolean,
   forkhubOwner: Schema.NullOr(DesktopForkHubOwnerSchema),
   forkhubRepo: Schema.NullOr(DesktopForkHubRepoSchema),
   currentVersion: Schema.String,

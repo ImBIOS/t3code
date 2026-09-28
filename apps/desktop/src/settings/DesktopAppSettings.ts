@@ -1,4 +1,5 @@
 import {
+  DEFAULT_FORKHUB_PUBLISHER,
   DesktopForkHubRepoSchema,
   DesktopServerExposureModeSchema,
   DesktopUpdateChannelSchema,
@@ -40,8 +41,9 @@ export interface DesktopSettings {
   readonly tailscaleServePort: number;
   readonly updateChannel: DesktopUpdateChannel;
   readonly updateChannelConfiguredByUser: boolean;
-  // ForkHub updater channel: GitHub profile/org whose `.forkhub` releases
-  // this install updates from when updateChannel is "forkhub".
+  // ForkHub publisher: GitHub profile/org whose `.forkhub` releases a
+  // ForkHub build updates from on the selected track. Prefilled with the
+  // catalog publisher on ForkHub builds, empty on stock.
   readonly forkhubOwner: string;
   readonly forkhubRepo: DesktopForkHubRepo;
   // Was a "local" | "wsl" swap mode in an earlier iteration of the WSL
@@ -115,7 +117,12 @@ const DesktopSettingsDocument = Schema.Struct({
   serverExposureMode: Schema.optionalKey(DesktopServerExposureModeSchema),
   tailscaleServeEnabled: Schema.optionalKey(Schema.Boolean),
   tailscaleServePort: Schema.optionalKey(Schema.Number),
-  updateChannel: Schema.optionalKey(DesktopUpdateChannelSchema),
+  updateChannel: Schema.optionalKey(
+    // The "forkhub" track is retired: ForkHub builds follow a publisher on
+    // the latest/nightly tracks instead. Still accepted on load so existing
+    // installs migrate instead of quarantining; normalized below.
+    Schema.Literals(["latest", "nightly", "forkhub"]),
+  ),
   updateChannelConfiguredByUser: Schema.optionalKey(Schema.Boolean),
   forkhubOwner: Schema.optionalKey(Schema.String),
   forkhubRepo: Schema.optionalKey(DesktopForkHubRepoSchema),
@@ -211,6 +218,9 @@ export function resolveDefaultDesktopSettings(appVersion: string): DesktopSettin
   return {
     ...DEFAULT_DESKTOP_SETTINGS,
     updateChannel: resolveDefaultDesktopUpdateChannel(appVersion),
+    // Fresh ForkHub homes point at the catalog publisher out of the box;
+    // stock installs carry no publisher.
+    forkhubOwner: isForkHubDerivedVersion(appVersion) ? DEFAULT_FORKHUB_PUBLISHER : "",
   };
 }
 
@@ -247,6 +257,12 @@ function normalizeDesktopSettingsDocument(
     parsed.wslBackendEnabled === true ||
     (parsed.wslBackendEnabled === undefined && parsed.wslMode === "wsl");
 
+  // The retired "forkhub" track migrates to nightly: same publisher feed,
+  // nightly manifests — which is what the old track polled.
+  const parsedUpdateChannelValue = Option.getOrUndefined(parsedUpdateChannel);
+  const migratedUpdateChannel =
+    parsedUpdateChannelValue === "forkhub" ? "nightly" : parsedUpdateChannelValue;
+
   return {
     localEnvironmentEnabled: parsed.localEnvironmentEnabled !== false,
     linuxPasswordStore: normalizeLinuxPasswordStorePreference(parsed.linuxPasswordStore),
@@ -257,10 +273,10 @@ function normalizeDesktopSettingsDocument(
     tailscaleServeEnabled: parsed.tailscaleServeEnabled === true,
     tailscaleServePort: normalizeTailscaleServePort(parsed.tailscaleServePort),
     updateChannel: updateChannelConfiguredByUser
-      ? Option.getOrElse(parsedUpdateChannel, () => defaultSettings.updateChannel)
+      ? (migratedUpdateChannel ?? defaultSettings.updateChannel)
       : defaultSettings.updateChannel,
     updateChannelConfiguredByUser,
-    forkhubOwner: normalizeForkHubOwner(parsed.forkhubOwner) ?? "",
+    forkhubOwner: normalizeForkHubOwner(parsed.forkhubOwner) ?? defaultSettings.forkhubOwner,
     forkhubRepo: parsed.forkhubRepo === ".forkhub" ? parsed.forkhubRepo : ".forkhub",
     wslBackendEnabled,
     wslDistro: normalizeWslDistro(parsed.wslDistro),

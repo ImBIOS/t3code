@@ -81,7 +81,7 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
 
 function SidebarBrand({ onBackdrop }: { onBackdrop: boolean }) {
   const updateState = useDesktopUpdateState();
-  const isForkHub = updateState?.channel === "forkhub";
+  const isForkHub = updateState?.isForkHubBuild ?? false;
   return (
     <Link
       aria-label={isForkHub ? "Go to threads (T3 Code x ForkHub)" : "Go to threads"}

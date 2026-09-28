@@ -292,6 +292,7 @@ function AboutVersionSection() {
   const hasDesktopBridge = typeof window !== "undefined" && Boolean(window.desktopBridge);
   const selectedUpdateChannel = updateState?.channel ?? "latest";
   const selectedHostedAppChannel = hasDesktopBridge ? null : HOSTED_APP_CHANNEL;
+  const isForkHubBuild = updateState?.isForkHubBuild ?? false;
   const storedForkhubOwner = updateState?.forkhubOwner ?? null;
   const storedForkhubRepo = updateState?.forkhubRepo ?? null;
   const forkhubOwnerValue = forkhubOwnerInput ?? storedForkhubOwner ?? "";
@@ -341,10 +342,7 @@ function AboutVersionSection() {
     setForkhubCheck({ status: "checking" });
     try {
       const check = await checkForkHubOwner(typed);
-      const state = await bridge.setForkHubOwner({ owner: check.owner, repo: check.repo });
-      if (state.channel !== "forkhub") {
-        await bridge.setUpdateChannel("forkhub");
-      }
+      await bridge.setForkHubOwner({ owner: check.owner, repo: check.repo });
       setForkhubOwnerInput(null);
       setForkhubCheck({ status: "valid", check });
       toastManager.add(
@@ -495,7 +493,11 @@ function AboutVersionSection() {
         <>
           <SettingsRow
             title="Update track"
-            description="Use stable releases, nightly builds, or a ForkHub channel. Switch back anytime."
+            description={
+              isForkHubBuild
+                ? "Stable releases or nightly builds from your ForkHub publisher below."
+                : "Use stable releases or nightly builds. Switch back anytime."
+            }
             control={
               <Select
                 value={selectedUpdateChannel}
@@ -510,11 +512,7 @@ function AboutVersionSection() {
                   disabled={isChangingUpdateChannel}
                 >
                   <SelectValue>
-                    {selectedUpdateChannel === "nightly"
-                      ? "Nightly"
-                      : selectedUpdateChannel === "forkhub"
-                        ? "ForkHub"
-                        : "Stable"}
+                    {selectedUpdateChannel === "nightly" ? "Nightly" : "Stable"}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectPopup align="end" alignItemWithTrigger={false}>
@@ -524,15 +522,13 @@ function AboutVersionSection() {
                   <SelectItem hideIndicator value="nightly">
                     Nightly
                   </SelectItem>
-                  <SelectItem hideIndicator value="forkhub">
-                    ForkHub
-                  </SelectItem>
                 </SelectPopup>
               </Select>
             }
           />
+          {isForkHubBuild ? (
           <SettingsRow
-            title="ForkHub channel"
+            title="ForkHub publisher"
             description={
               storedForkhubOwner
                 ? `Polling ${storedForkhubOwner}/${storedForkhubRepo ?? ".forkhub"} releases.`
@@ -550,7 +546,7 @@ function AboutVersionSection() {
                     onKeyDown={(event) => {
                       if (event.key === "Enter") void handleForkHubCheck();
                     }}
-                    placeholder="ImBIOS"
+                    placeholder="with-fh"
                     aria-label="ForkHub profile or org"
                     autoComplete="off"
                     spellCheck={false}
@@ -566,7 +562,13 @@ function AboutVersionSection() {
                 </div>
                 {forkhubCheck.status === "valid" ? (
                   <p className="text-xs text-muted-foreground">
-                    {forkhubCheck.check.owner}/{forkhubCheck.check.repo} has ForkHub releases
+                    {forkhubCheck.check.owner}/{forkhubCheck.check.repo} serves
+                    {[
+                      forkhubCheck.check.hasStableTrain ? "Stable" : null,
+                      forkhubCheck.check.hasNightlyTrain ? "Nightly" : null,
+                    ]
+                      .filter((train) => train !== null)
+                      .join(" + ")}
                     {forkhubCheck.check.latestTag
                       ? ` (latest ${forkhubCheck.check.latestTag})`
                       : ""}
@@ -591,6 +593,7 @@ function AboutVersionSection() {
               </div>
             }
           />
+          ) : null}
         </>
       ) : selectedHostedAppChannel ? (
         <SettingsRow

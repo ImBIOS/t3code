@@ -22,6 +22,7 @@ const baseState: DesktopUpdateState = {
   enabled: true,
   status: "available",
   channel: "nightly",
+  isForkHubBuild: false,
   forkhubOwner: null,
   forkhubRepo: null,
   currentVersion: "0.0.35",

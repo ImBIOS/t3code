@@ -428,6 +428,7 @@ describe("DesktopTelemetryPublisher", () => {
             enabled: true,
             status: "up-to-date",
             channel: "latest",
+            isForkHubBuild: false,
             forkhubOwner: null,
             forkhubRepo: null,
             currentVersion: "1.2.3",

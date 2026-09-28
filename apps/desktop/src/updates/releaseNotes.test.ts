@@ -22,6 +22,7 @@ describe("normalizeDesktopUpdateReleaseNotes", () => {
       ].join("\n"),
       "0.0.36-nightly.20260828.1213",
       "nightly",
+      false,
     );
 
     expect(result).toEqual({
@@ -52,6 +53,7 @@ describe("normalizeDesktopUpdateReleaseNotes", () => {
         "<h2>Full Changelog</h2>",
       "1.2.3",
       "latest",
+      false,
     );
 
     expect(result).toEqual({
@@ -72,6 +74,7 @@ describe("normalizeDesktopUpdateReleaseNotes", () => {
       ],
       "1.2.4",
       "latest",
+      false,
     );
 
     expect(result.releaseNotes).toEqual([
@@ -89,6 +92,7 @@ describe("normalizeDesktopUpdateReleaseNotes", () => {
       ],
       "1.2.3",
       "latest",
+      false,
     );
 
     expect(result).toEqual({
@@ -114,6 +118,7 @@ describe("normalizeDesktopUpdateReleaseNotes", () => {
       releaseNotes,
       "0.0.41-nightly.20260914.1707",
       "nightly",
+      false,
     );
 
     expect(result.releaseNotes.map(({ version }) => version)).toEqual([
@@ -123,21 +128,35 @@ describe("normalizeDesktopUpdateReleaseNotes", () => {
     expect(result.omittedReleaseCount).toBe(0);
   });
 
-  it("keeps stable and nightly releases on the ForkHub channel", () => {
-    const result = normalizeDesktopUpdateReleaseNotes(
+  it("keeps the publisher's train on ForkHub builds", () => {
+    const nightly = normalizeDesktopUpdateReleaseNotes(
       [
         { version: "0.0.41-preview.20260914.1683", note: "- Maintainer test build" },
-        { version: "0.0.41-nightly.20260914.1707", note: "- Nightly change" },
-        { version: "0.0.42", note: "- Stable change" },
+        { version: "0.0.41-nightly.20260914.1707", note: "- Stock nightly" },
+        { version: "0.0.43-nightly.20260924.2187.fh.with-fh.1", note: "- ForkHub nightly change" },
+        { version: "0.0.42-fh.with-fh.1", note: "- ForkHub stable change" },
       ],
-      "0.0.41-nightly.20260914.1707",
-      "forkhub",
+      "0.0.43-nightly.20260924.2187.fh.with-fh.1",
+      "nightly",
+      true,
     );
 
-    expect(result.releaseNotes.map(({ version }) => version)).toEqual([
-      "0.0.41-nightly.20260914.1707",
-      "0.0.42",
+    expect(nightly.releaseNotes.map(({ version }) => version)).toEqual([
+      "0.0.43-nightly.20260924.2187.fh.with-fh.1",
+      "0.0.42-fh.with-fh.1",
     ]);
+
+    const stable = normalizeDesktopUpdateReleaseNotes(
+      [
+        { version: "0.0.42", note: "- Stock stable" },
+        { version: "0.0.42-fh.with-fh.1", note: "- ForkHub stable change" },
+      ],
+      "0.0.42-fh.with-fh.1",
+      "latest",
+      true,
+    );
+
+    expect(stable.releaseNotes.map(({ version }) => version)).toEqual(["0.0.42-fh.with-fh.1"]);
   });
 
   it("keeps only stable releases on the latest channel", () => {
@@ -148,6 +167,7 @@ describe("normalizeDesktopUpdateReleaseNotes", () => {
       ],
       "0.0.42",
       "latest",
+      false,
     );
 
     expect(result.releaseNotes.map(({ version }) => version)).toEqual(["0.0.42"]);
@@ -165,7 +185,7 @@ describe("normalizeDesktopUpdateReleaseNotes", () => {
       { version: "1.3.2", note: "- Change 2" },
     ];
 
-    const result = normalizeDesktopUpdateReleaseNotes(releaseNotes, "1.3.9", "latest");
+    const result = normalizeDesktopUpdateReleaseNotes(releaseNotes, "1.3.9", "latest", false);
 
     expect(result.releaseNotes.map(({ version }) => version)).toEqual([
       "1.3.9",
@@ -183,6 +203,7 @@ describe("normalizeDesktopUpdateReleaseNotes", () => {
       "- Fix &amp; polish &#128512;",
       "1.0.0",
       "latest",
+      false,
     );
     expect(result).toEqual({
       releaseNotes: [{ version: "1.0.0", items: ["Fix & polish 😀"], totalItems: 1 }],
@@ -202,6 +223,7 @@ describe("normalizeDesktopUpdateReleaseNotes", () => {
       ],
       "1.2.3",
       "latest",
+      false,
     );
 
     expect(result).toEqual({
@@ -211,7 +233,7 @@ describe("normalizeDesktopUpdateReleaseNotes", () => {
   });
 
   it("returns an empty result for an invalid payload", () => {
-    expect(normalizeDesktopUpdateReleaseNotes({ note: "- Invalid" }, "1.0.0", "latest")).toEqual({
+    expect(normalizeDesktopUpdateReleaseNotes({ note: "- Invalid" }, "1.0.0", "latest", false)).toEqual({
       releaseNotes: [],
       omittedReleaseCount: 0,
     });
@@ -222,6 +244,7 @@ describe("normalizeDesktopUpdateReleaseNotes", () => {
       "- Broken entity &#9999999999;",
       "1.0.0",
       "latest",
+      false,
     );
     expect(result).toEqual({
       releaseNotes: [{ version: "1.0.0", items: ["Broken entity &#9999999999;"], totalItems: 1 }],

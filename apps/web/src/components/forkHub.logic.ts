@@ -18,7 +18,7 @@ export function normalizeForkHubOwner(raw: unknown): string | null {
 }
 
 export function forkHubReleasesApiUrl(owner: string, repo: DesktopForkHubRepo): string {
-  return `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/releases?per_page=5`;
+  return `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/releases?per_page=20`;
 }
 
 export function forkHubRepoWebUrl(owner: string, repo: DesktopForkHubRepo): string {
@@ -30,6 +30,11 @@ export interface ForkHubOwnerCheck {
   readonly repo: DesktopForkHubRepo;
   readonly releaseCount: number;
   readonly latestTag: string | null;
+  // Which trains the publisher's catalog serves. A ForkHub build follows
+  // the selected update track (stable = latest, nightly) inside this
+  // publisher's catalog; a publisher with neither train is invalid.
+  readonly hasStableTrain: boolean;
+  readonly hasNightlyTrain: boolean;
 }
 
 interface GitHubReleaseRow {
@@ -44,8 +49,9 @@ function isUsableRelease(row: unknown): boolean {
 }
 
 /**
- * Validates a profile/org name as a T3 Code ForkHub channel: the account must
- * own a public `.forkhub` repo with at least one published release.
+ * Validates a publisher as a T3 Code ForkHub source: the account must own
+ * a public `.forkhub` repo with at least one published release on the
+ * stable train, the nightly train, or both.
  */
 export async function checkForkHubOwner(
   rawOwner: string,
@@ -81,6 +87,21 @@ export async function checkForkHubOwner(
       `${owner}/${repo} exists but has no published releases yet. Ask them to publish a ForkHub build first.`,
     );
   }
+  // Train detection runs on versioned updater tags only (`vX.Y.Z…`):
+  // bundle releases mirror the same trains and carry no version of their
+  // own. Preview/PR cuts serve no train.
+  const versionTags = releases
+    .map((row) => (row as GitHubReleaseRow).tag_name as string)
+    .filter((tag) => /^v\d+\.\d+\.\d+/.test(tag));
+  const hasNightlyTrain = versionTags.some((tag) => /-nightly\.\d{8}\./.test(tag));
+  const hasStableTrain = versionTags.some(
+    (tag) => !/-nightly\.\d{8}\./.test(tag) && !/-preview\.\d{8}\./.test(tag) && !/-pr\./.test(tag),
+  );
+  if (!hasStableTrain && !hasNightlyTrain) {
+    throw new Error(
+      `${owner}/${repo} has releases but serves neither the stable nor the nightly train. Ask them to publish a ForkHub build first.`,
+    );
+  }
   // Bundle releases (e.g. `pingdotgg-t3code-v…-fh1`) are newer than the
   // updater releases they describe; the "latest" label should name a real
   // version tag — which is also where the ForkHub provenance suffix shows.
@@ -94,5 +115,5 @@ export async function checkForkHubOwner(
     newest !== undefined && typeof (newest as GitHubReleaseRow).tag_name === "string"
       ? ((newest as GitHubReleaseRow).tag_name as string)
       : null;
-  return { owner, repo, releaseCount: releases.length, latestTag };
+  return { owner, repo, releaseCount: releases.length, latestTag, hasStableTrain, hasNightlyTrain };
 }

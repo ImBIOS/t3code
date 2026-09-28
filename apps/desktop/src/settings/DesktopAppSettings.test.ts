@@ -258,6 +258,7 @@ describe("DesktopSettings", () => {
         assert.deepEqual(yield* settings.load, {
           ...DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS,
           updateChannel: "nightly",
+          forkhubOwner: "with-fh",
         });
         const backupPath = `${environment.desktopSettingsPath}.corrupt.bak`;
         assert.isTrue(yield* fileSystem.exists(backupPath));
@@ -279,6 +280,48 @@ describe("DesktopSettings", () => {
         assert.deepEqual(yield* settings.load, DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS);
         assert.isFalse(yield* fileSystem.exists(`${environment.desktopSettingsPath}.corrupt.bak`));
       }),
+    ),
+  );
+
+  it("defaults ForkHub builds to the nightly track and the catalog publisher", () => {
+    assert.deepEqual(
+      DesktopAppSettings.resolveDefaultDesktopSettings("0.0.43-nightly.20260928.2375.fh.with-fh.4"),
+      {
+        ...DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS,
+        updateChannel: "nightly",
+        forkhubOwner: "with-fh",
+      } satisfies DesktopAppSettings.DesktopSettings,
+    );
+    assert.deepEqual(
+      DesktopAppSettings.resolveDefaultDesktopSettings("0.0.17"),
+      DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS,
+    );
+  });
+
+  it.effect("migrates the retired forkhub track to nightly and keeps the publisher", () =>
+    withSettings(
+      Effect.gen(function* () {
+        const environment = yield* DesktopEnvironment.DesktopEnvironment;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const settings = yield* DesktopAppSettings.DesktopAppSettings;
+        yield* fileSystem.makeDirectory(environment.stateDir, { recursive: true });
+        yield* fileSystem.writeFileString(
+          environment.desktopSettingsPath,
+          JSON.stringify({
+            updateChannel: "forkhub",
+            updateChannelConfiguredByUser: true,
+            forkhubOwner: "with-fh",
+          }),
+        );
+
+        assert.deepEqual(yield* settings.load, {
+          ...DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS,
+          updateChannel: "nightly",
+          updateChannelConfiguredByUser: true,
+          forkhubOwner: "with-fh",
+        });
+      }),
+      { appVersion: "0.0.43-nightly.20260928.2375.fh.with-fh.4" },
     ),
   );
 

@@ -42,7 +42,7 @@ export function shouldUseSidebarUpdateReleaseNotesPopover(
 ): boolean {
   return (
     showUpdateDetails &&
-    (state?.channel === "nightly" || state?.channel === "forkhub") &&
+    (state?.channel === "nightly" || state?.isForkHubBuild === true) &&
     state.releaseNotes.length > 0
   );
 }

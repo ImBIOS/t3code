@@ -9,6 +9,7 @@ const baseState: DesktopUpdateState = {
   enabled: true,
   status: "idle",
   channel: "latest",
+  isForkHubBuild: false,
   forkhubOwner: null,
   forkhubRepo: null,
   currentVersion: "1.0.0",

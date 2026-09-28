@@ -777,7 +777,7 @@ describe("DesktopUpdates", () => {
     }),
   );
 
-  it.effect("asks for a ForkHub owner instead of switching without a feed", () => {
+  it.effect("persists a ForkHub publisher without switching tracks", () => {
     const harness = makeHarness();
 
     return Effect.scoped(
@@ -786,17 +786,11 @@ describe("DesktopUpdates", () => {
         const updates = yield* DesktopUpdates.DesktopUpdates;
         yield* updates.configure;
 
-        const error = yield* updates.setChannel("forkhub").pipe(Effect.flip);
+        const state = yield* updates.setForkHubOwner({ owner: "with-fh" });
 
-        assert.instanceOf(error, DesktopUpdates.DesktopForkHubOwnerMissingError);
-        assert.equal(
-          error.message,
-          "Set a ForkHub profile or org before switching to the ForkHub track.",
-        );
-
-        // Nothing persisted: the track stays where it was.
-        const persistedSettings = yield* settings.get;
-        assert.equal(persistedSettings.updateChannel, "latest");
+        assert.equal(state.forkhubOwner, "with-fh");
+        assert.equal(state.channel, "latest");
+        assert.equal((yield* settings.get).forkhubOwner, "with-fh");
         assert.equal((yield* updates.getState).channel, "latest");
       }),
     ).pipe(Effect.provide(Layer.merge(TestClock.layer(), harness.layer)));

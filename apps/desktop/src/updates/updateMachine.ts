@@ -5,6 +5,8 @@ import type {
   DesktopUpdateState,
 } from "@t3tools/contracts";
 
+import { isForkHubDerivedVersion } from "./updateChannels.ts";
+
 function nextStatusAfterDownloadFailure(
   currentState: DesktopUpdateState,
 ): DesktopUpdateState["status"] {
@@ -25,6 +27,7 @@ export function createInitialDesktopUpdateState(
     enabled: false,
     status: "disabled",
     channel,
+    isForkHubBuild: isForkHubDerivedVersion(currentVersion),
     forkhubOwner: forkhub?.owner ?? null,
     forkhubRepo: forkhub?.repo ?? null,
     currentVersion,

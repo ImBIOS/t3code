@@ -43,6 +43,7 @@ function downloadedState(overrides: Partial<DesktopUpdateState> = {}): DesktopUp
     enabled: true,
     status: "downloaded",
     channel: "latest",
+    isForkHubBuild: false,
     forkhubOwner: null,
     forkhubRepo: null,
     currentVersion: "0.0.29",
@@ -103,13 +104,13 @@ describe("showDesktopUpdateDownloadedToast", () => {
 
     showDesktopUpdateDownloadedToast(
       { openExternal },
-      downloadedState({ channel: "forkhub", forkhubOwner: "ImBIOS", forkhubRepo: ".forkhub" }),
+      downloadedState({ channel: "nightly", isForkHubBuild: true, forkhubOwner: "with-fh", forkhubRepo: ".forkhub" }),
     );
     findReleaseNotesLink(getDescription())?.props.onClick?.();
 
     await vi.waitFor(() => {
       expect(openExternal).toHaveBeenCalledWith(
-        "https://github.com/ImBIOS/.forkhub/releases/tag/v0.0.30",
+        "https://github.com/with-fh/.forkhub/releases/tag/v0.0.30",
       );
     });
   });

@@ -137,6 +137,7 @@ export function normalizeDesktopUpdateReleaseNotes(
   releaseNotes: unknown,
   fallbackVersion: string,
   channel: DesktopUpdateChannel,
+  isForkHubBuild: boolean,
 ): NormalizedDesktopUpdateReleaseNotes {
   const rawNotes = (
     typeof releaseNotes === "string"
@@ -144,7 +145,7 @@ export function normalizeDesktopUpdateReleaseNotes(
       : Array.isArray(releaseNotes)
         ? releaseNotes.filter(isElectronReleaseNoteInfo)
         : []
-  ).filter((entry) => isVersionAllowedOnUpdateChannel(entry.version, channel));
+  ).filter((entry) => isVersionAllowedOnUpdateChannel(entry.version, channel, isForkHubBuild));
 
   const normalizedNotes = rawNotes.flatMap((entry) => {
     const { items, totalItems } = extractReleaseNoteItems(entry.note);
