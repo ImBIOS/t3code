@@ -19,6 +19,7 @@ import * as DesktopApplicationMenu from "../window/DesktopApplicationMenu.ts";
 import * as DesktopWindow from "../window/DesktopWindow.ts";
 import * as DesktopBackendPool from "../backend/DesktopBackendPool.ts";
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
+import { importStockStateOnFirstForkHubBoot } from "./DesktopForkHubStockImport.ts";
 import * as DesktopLifecycle from "./DesktopLifecycle.ts";
 import * as DesktopLinuxUrlHandler from "./DesktopLinuxUrlHandler.ts";
 import * as DesktopObservability from "./DesktopObservability.ts";
@@ -295,6 +296,10 @@ const startup = Effect.gen(function* () {
   const userDataPath = yield* appIdentity.resolveUserDataPath;
   yield* electronApp.setPath("userData", userDataPath);
   yield* logStartupInfo("runtime logging configured", { logDir: environment.logDir });
+  // A fresh ForkHub home adopts stock state before anything reads it, so the
+  // first boot keeps track, owner, prefs, and environments. Best-effort by
+  // construction: it never fails startup.
+  yield* importStockStateOnFirstForkHubBoot;
   yield* desktopSettings.load;
 
   if (linuxElectronOptions !== null) {

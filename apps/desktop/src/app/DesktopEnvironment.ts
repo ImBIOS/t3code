@@ -46,6 +46,9 @@ export class DesktopEnvironment extends Context.Service<
     readonly homeDirectory: string;
     readonly appDataDirectory: string;
     readonly baseDir: string;
+    // False when T3CODE_HOME pins the backend home: an explicit home is
+    // always honored as-is, never migrated or imported into.
+    readonly isImplicitHome: boolean;
     readonly stateDir: string;
     readonly desktopSettingsPath: string;
     readonly clientSettingsPath: string;
@@ -177,6 +180,8 @@ const make = Effect.fn("desktop.environment.make")(function* (
         ? path.join(homeDirectory, "Library", "Application Support")
         : Option.getOrElse(config.xdgConfigHome, () => path.join(homeDirectory, ".config"));
   const isForkHubBuild = !isDevelopment && isForkHubDerivedVersion(input.appVersion);
+  const isImplicitHome =
+    Option.isNone(config.t3Home) || config.t3Home.value.trim().length === 0;
   const baseDir = resolveDesktopBaseDir({
     homeDirectory,
     joinPath: path.join,
@@ -234,6 +239,7 @@ const make = Effect.fn("desktop.environment.make")(function* (
     homeDirectory,
     appDataDirectory,
     baseDir,
+    isImplicitHome,
     stateDir,
     desktopSettingsPath: path.join(stateDir, "desktop-settings.json"),
     clientSettingsPath: path.join(stateDir, "client-settings.json"),

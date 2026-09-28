@@ -165,6 +165,7 @@ describe("DesktopEnvironment", () => {
 
       assert.equal(stock.baseDir, "/Users/alice/.t3");
       assert.equal(stock.stateDir, "/Users/alice/.t3/userdata");
+      assert.equal(stock.isImplicitHome, true);
       assert.equal(stock.userDataDirName, "t3code");
       assert.equal(stock.linuxWmClass, "t3code");
       assert.equal(stock.appUserModelId, "com.t3tools.t3code");
