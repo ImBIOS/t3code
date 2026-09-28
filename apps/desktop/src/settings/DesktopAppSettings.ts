@@ -24,6 +24,7 @@ import {
   type LinuxPasswordStorePreference,
 } from "../linuxSecretStorage.ts";
 import {
+  isForkHubDerivedVersion,
   normalizeForkHubOwner,
   resolveDefaultDesktopUpdateChannel,
 } from "../updates/updateChannels.ts";
@@ -442,10 +443,38 @@ function readSettings(
         onSome: (raw) =>
           decodeDesktopSettingsJson(raw).pipe(
             Effect.map((parsed) => normalizeDesktopSettingsDocument(parsed, appVersion)),
-            Effect.orElseSucceed(() => defaultSettings),
+            Effect.catch((cause) =>
+              isForkHubDerivedVersion(appVersion)
+                ? quarantineCorruptSettings(fileSystem, settingsPath, raw, cause).pipe(
+                    Effect.as(defaultSettings),
+                  )
+                : Effect.succeed(defaultSettings),
+            ),
           ),
       }),
     ),
+  );
+}
+
+// A ForkHub install shares version lineage with stock but runs its own home,
+// so a settings file it cannot decode (foreign schema, truncated write from a
+// concurrent older build) is quarantined to a sidecar instead of being
+// silently dropped: the evidence stays on disk and startup continues on
+// defaults. Stock keeps its historical silent-defaults behavior.
+function quarantineCorruptSettings(
+  fileSystem: FileSystem.FileSystem,
+  settingsPath: string,
+  raw: string,
+  cause: unknown,
+): Effect.Effect<void> {
+  const backupPath = `${settingsPath}.corrupt.bak`;
+  return Effect.logWarning("ForkHub quarantined an unreadable desktop-settings.json", {
+    settingsPath,
+    backupPath,
+    cause: String(cause),
+  }).pipe(
+    Effect.andThen(fileSystem.writeFileString(backupPath, raw)),
+    Effect.ignore,
   );
 }
 

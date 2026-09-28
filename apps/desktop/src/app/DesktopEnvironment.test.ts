@@ -155,6 +155,35 @@ describe("DesktopEnvironment", () => {
     }),
   );
 
+  it.effect("isolates ForkHub installs so stock and ForkHub run side by side", () =>
+    Effect.gen(function* () {
+      const stock = yield* makeEnvironment({ isPackaged: true });
+      const forkhub = yield* makeEnvironment({
+        isPackaged: true,
+        appVersion: "0.0.43-nightly.20260924.2187.fh.imbios.1",
+      });
+
+      assert.equal(stock.baseDir, "/Users/alice/.t3");
+      assert.equal(stock.stateDir, "/Users/alice/.t3/userdata");
+      assert.equal(stock.userDataDirName, "t3code");
+      assert.equal(stock.linuxWmClass, "t3code");
+      assert.equal(stock.appUserModelId, "com.t3tools.t3code");
+      assert.equal(stock.linuxDesktopEntryName, "com.t3tools.T3Code.desktop");
+
+      assert.equal(forkhub.baseDir, "/Users/alice/.t3-forkhub");
+      assert.equal(forkhub.stateDir, "/Users/alice/.t3-forkhub/userdata");
+      assert.equal(
+        forkhub.desktopSettingsPath,
+        "/Users/alice/.t3-forkhub/userdata/desktop-settings.json",
+      );
+      assert.equal(forkhub.userDataDirName, "t3code-forkhub");
+      assert.equal(forkhub.legacyUserDataDirName, "T3 Code x ForkHub");
+      assert.equal(forkhub.linuxWmClass, "t3code-forkhub");
+      assert.equal(forkhub.appUserModelId, "com.t3tools.t3code.forkhub");
+      assert.equal(forkhub.linuxDesktopEntryName, "com.t3tools.T3Code.ForkHub.desktop");
+    }),
+  );
+
   it.effect("keeps implicit development state separate from production state", () =>
     Effect.gen(function* () {
       const development = yield* makeEnvironment(

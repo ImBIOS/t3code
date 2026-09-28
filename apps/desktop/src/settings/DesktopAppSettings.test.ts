@@ -246,6 +246,42 @@ describe("DesktopSettings", () => {
     ),
   );
 
+  it.effect("quarantines malformed settings for ForkHub builds instead of dropping them", () =>
+    withSettings(
+      Effect.gen(function* () {
+        const environment = yield* DesktopEnvironment.DesktopEnvironment;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const settings = yield* DesktopAppSettings.DesktopAppSettings;
+        yield* fileSystem.makeDirectory(environment.stateDir, { recursive: true });
+        yield* fileSystem.writeFileString(environment.desktopSettingsPath, "{not-json");
+
+        assert.deepEqual(yield* settings.load, {
+          ...DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS,
+          updateChannel: "nightly",
+        });
+        const backupPath = `${environment.desktopSettingsPath}.corrupt.bak`;
+        assert.isTrue(yield* fileSystem.exists(backupPath));
+        assert.equal(yield* fileSystem.readFileString(backupPath), "{not-json");
+      }),
+      { appVersion: "0.0.43-nightly.20260924.2187.fh.imbios.1" },
+    ),
+  );
+
+  it.effect("leaves no quarantine backup for stock builds with malformed settings", () =>
+    withSettings(
+      Effect.gen(function* () {
+        const environment = yield* DesktopEnvironment.DesktopEnvironment;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const settings = yield* DesktopAppSettings.DesktopAppSettings;
+        yield* fileSystem.makeDirectory(environment.stateDir, { recursive: true });
+        yield* fileSystem.writeFileString(environment.desktopSettingsPath, "{not-json");
+
+        assert.deepEqual(yield* settings.load, DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS);
+        assert.isFalse(yield* fileSystem.exists(`${environment.desktopSettingsPath}.corrupt.bak`));
+      }),
+    ),
+  );
+
   it.effect("loads lenient persisted desktop settings JSON", () =>
     withSettings(
       Effect.gen(function* () {

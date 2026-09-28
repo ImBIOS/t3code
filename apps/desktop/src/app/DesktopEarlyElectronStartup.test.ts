@@ -15,6 +15,7 @@ describe("DesktopEarlyElectronStartup", () => {
       env: { T3CODE_HOME: "/home/user/.t3-test" },
       homeDirectory: "/home/user",
       joinPath,
+      appVersion: "0.0.22",
       readFileString: (path) => {
         assert.equal(path, "/home/user/.t3-test/userdata/desktop-settings.json");
         return JSON.stringify({ linuxPasswordStore: "kwallet6" });
@@ -29,6 +30,7 @@ describe("DesktopEarlyElectronStartup", () => {
       env: { T3CODE_HOME: "/home/user/.t3-test" },
       homeDirectory: "/home/user",
       joinPath,
+      appVersion: "0.0.22",
       readFileString: () => `{
         // manually edited setting
         "linuxPasswordStore": "gnome-libsecret",
@@ -43,6 +45,7 @@ describe("DesktopEarlyElectronStartup", () => {
       env: {},
       homeDirectory: "/home/user",
       joinPath,
+      appVersion: "0.0.22",
       readFileString: () => {
         throw new Error("missing");
       },
@@ -56,6 +59,7 @@ describe("DesktopEarlyElectronStartup", () => {
       env: { T3CODE_HOME: "/" },
       homeDirectory: "/home/user",
       joinPath,
+      appVersion: "0.0.22",
       readFileString: (path) => {
         assert.equal(path, "/userdata/desktop-settings.json");
         return JSON.stringify({ linuxPasswordStore: "kwallet6" });
@@ -74,6 +78,7 @@ describe("DesktopEarlyElectronStartup", () => {
       },
       homeDirectory: "/home/user",
       joinPath,
+      appVersion: "0.0.22",
       readFileString: (path) => {
         assert.equal(path, "/home/user/.t3-test/userdata/desktop-settings.json");
         return JSON.stringify({ linuxPasswordStore: "auto" });
@@ -95,8 +100,44 @@ describe("DesktopEarlyElectronStartup", () => {
       },
       homeDirectory: "/home/user",
       joinPath,
+      appVersion: "0.0.22",
       readFileString: (path) => {
         assert.equal(path, "/home/user/.t3/dev/desktop-settings.json");
+        return JSON.stringify({ linuxPasswordStore: "kwallet" });
+      },
+    });
+
+    assert.equal(preference, "kwallet");
+  });
+
+  it("resolves ForkHub installs to their own settings home and Electron identity", () => {
+    const options = resolveEarlyLinuxElectronOptions({
+      env: {},
+      homeDirectory: "/home/user",
+      joinPath,
+      appVersion: "0.0.43-nightly.20260924.2187.fh.imbios.1",
+      readFileString: (path) => {
+        assert.equal(path, "/home/user/.t3-forkhub/userdata/desktop-settings.json");
+        return JSON.stringify({ linuxPasswordStore: "kwallet6" });
+      },
+    });
+
+    assert.deepEqual(options, {
+      isDevelopment: false,
+      linuxWmClass: "t3code-forkhub",
+      linuxDesktopEntryName: "com.t3tools.T3Code.ForkHub.desktop",
+      passwordStore: "kwallet6",
+    });
+  });
+
+  it("keeps an explicit T3CODE_HOME for ForkHub installs", () => {
+    const preference = resolveEarlyLinuxPasswordStorePreference({
+      env: { T3CODE_HOME: "/home/user/.t3-test" },
+      homeDirectory: "/home/user",
+      joinPath,
+      appVersion: "0.0.43-nightly.20260924.2187.fh.imbios.1",
+      readFileString: (path) => {
+        assert.equal(path, "/home/user/.t3-test/userdata/desktop-settings.json");
         return JSON.stringify({ linuxPasswordStore: "kwallet" });
       },
     });
@@ -112,6 +153,7 @@ describe("DesktopEarlyElectronStartup", () => {
       },
       homeDirectory: "/home/user",
       joinPath,
+      appVersion: "0.0.22",
       readFileString: (path) => {
         assert.equal(path, "/home/user/.t3/dev/desktop-settings.json");
         return JSON.stringify({ linuxPasswordStore: "gnome-libsecret" });

@@ -9,6 +9,7 @@ import {
   type LinuxPasswordStoreSwitch,
   type LinuxPasswordStorePreference,
 } from "../linuxSecretStorage.ts";
+import { isForkHubDerivedVersion } from "../updates/updateChannels.ts";
 import {
   resolveDesktopBaseDir,
   resolveDesktopStateDir,
@@ -20,6 +21,9 @@ interface EarlyDesktopSettingsInput {
   readonly homeDirectory: string;
   readonly joinPath: JoinPath;
   readonly readFileString: (path: string) => string;
+  // Pre-ready Electron setup runs before app services exist; the caller passes
+  // app.getVersion() so ForkHub installs resolve their own isolated paths.
+  readonly appVersion: string;
 }
 
 type EarlyLinuxElectronOptionsInput = EarlyDesktopSettingsInput;
@@ -31,8 +35,17 @@ export interface EarlyLinuxElectronOptions {
   readonly passwordStore: LinuxPasswordStoreSwitch | null;
 }
 
-export const resolveLinuxDesktopEntryName = (isDevelopment: boolean): string =>
-  isDevelopment ? "com.t3tools.T3Code.Development.desktop" : "com.t3tools.T3Code.desktop";
+export const resolveLinuxDesktopEntryName = (
+  isDevelopment: boolean,
+  isForkHubBuild = false,
+): string => {
+  if (isDevelopment) {
+    return "com.t3tools.T3Code.Development.desktop";
+  }
+  // A ForkHub install writes its own launcher entry so it never clobbers the
+  // stock entry file (last launch would otherwise win the Exec target).
+  return isForkHubBuild ? "com.t3tools.T3Code.ForkHub.desktop" : "com.t3tools.T3Code.desktop";
+};
 
 const trimNonEmpty = (value: string | undefined): string | null => {
   const trimmed = value?.trim();
@@ -53,12 +66,14 @@ function resolveEarlyDesktopSettingsPath(input: {
   readonly env: NodeJS.ProcessEnv;
   readonly homeDirectory: string;
   readonly joinPath: JoinPath;
+  readonly appVersion: string;
 }): string {
   const t3Home = Option.fromUndefinedOr(input.env.T3CODE_HOME);
   const baseDir = resolveDesktopBaseDir({
     homeDirectory: input.homeDirectory,
     joinPath: input.joinPath,
     t3Home,
+    isForkHubBuild: isForkHubDerivedVersion(input.appVersion),
   });
   const stateDir = resolveDesktopStateDir({
     baseDir,
@@ -86,10 +101,11 @@ export function resolveEarlyLinuxElectronOptions(
 ): EarlyLinuxElectronOptions {
   const preference = resolveEarlyLinuxPasswordStorePreference(input);
   const isDevelopment = isDevelopmentEnvironment(input.env);
+  const isForkHubBuild = !isDevelopment && isForkHubDerivedVersion(input.appVersion);
   return {
     isDevelopment,
-    linuxWmClass: isDevelopment ? "t3code-dev" : "t3code",
-    linuxDesktopEntryName: resolveLinuxDesktopEntryName(isDevelopment),
+    linuxWmClass: isDevelopment ? "t3code-dev" : isForkHubBuild ? "t3code-forkhub" : "t3code",
+    linuxDesktopEntryName: resolveLinuxDesktopEntryName(isDevelopment, isForkHubBuild),
     passwordStore: resolveLinuxPasswordStoreSwitch({
       preference,
       env: input.env,

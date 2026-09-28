@@ -176,10 +176,12 @@ const make = Effect.fn("desktop.environment.make")(function* (
       : input.platform === "darwin"
         ? path.join(homeDirectory, "Library", "Application Support")
         : Option.getOrElse(config.xdgConfigHome, () => path.join(homeDirectory, ".config"));
+  const isForkHubBuild = !isDevelopment && isForkHubDerivedVersion(input.appVersion);
   const baseDir = resolveDesktopBaseDir({
     homeDirectory,
     joinPath: path.join,
     t3Home: config.t3Home,
+    isForkHubBuild,
   });
   const rootDir = path.resolve(input.dirname, "../../..");
   const appRoot = input.isPackaged ? input.appPath : rootDir;
@@ -198,8 +200,21 @@ const make = Effect.fn("desktop.environment.make")(function* (
     joinPath: path.join,
     t3Home: config.t3Home,
   });
-  const userDataDirName = isDevelopment ? "t3code-dev" : "t3code";
-  const legacyUserDataDirName = isDevelopment ? "T3 Code (Dev)" : "T3 Code (Alpha)";
+  // A ForkHub install gets its own Electron profile, window class, and OS app
+  // identity so it can run at the same time as a stock install: Chromium's
+  // single-instance lock is per user-data dir, and the taskbar/dock groups by
+  // app id / window class. The legacy dir is intentionally a name no previous
+  // build ever used, so ForkHub never adopts the shared stock profile.
+  const userDataDirName = isDevelopment
+    ? "t3code-dev"
+    : isForkHubBuild
+      ? "t3code-forkhub"
+      : "t3code";
+  const legacyUserDataDirName = isDevelopment
+    ? "T3 Code (Dev)"
+    : isForkHubBuild
+      ? FORKHUB_APP_DISPLAY_NAME
+      : "T3 Code (Alpha)";
   const linuxApplicationsDir = path.join(
     Option.getOrElse(config.xdgDataHome, () => path.join(homeDirectory, ".local", "share")),
     "applications",
@@ -249,10 +264,14 @@ const make = Effect.fn("desktop.environment.make")(function* (
     branding,
     displayName,
     appUserModelId: Option.getOrElse(config.appUserModelIdOverride, () =>
-      isDevelopment ? "com.t3tools.t3code.dev" : "com.t3tools.t3code",
+      isDevelopment
+        ? "com.t3tools.t3code.dev"
+        : isForkHubBuild
+          ? "com.t3tools.t3code.forkhub"
+          : "com.t3tools.t3code",
     ),
-    linuxDesktopEntryName: resolveLinuxDesktopEntryName(isDevelopment),
-    linuxWmClass: isDevelopment ? "t3code-dev" : "t3code",
+    linuxDesktopEntryName: resolveLinuxDesktopEntryName(isDevelopment, isForkHubBuild),
+    linuxWmClass: isDevelopment ? "t3code-dev" : isForkHubBuild ? "t3code-forkhub" : "t3code",
     linuxApplicationsDir,
     appImagePath: config.appImagePath,
     userDataDirName,

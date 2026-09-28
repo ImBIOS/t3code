@@ -14,9 +14,13 @@ export function resolveDesktopBaseDir(input: {
   readonly homeDirectory: string;
   readonly joinPath: JoinPath;
   readonly t3Home: Option.Option<string>;
+  // ForkHub builds keep their own backend home so a stock install and any
+  // ForkHub install can run side by side without sharing SQLite/service state.
+  // An explicit T3CODE_HOME still wins for both, deliberately.
+  readonly isForkHubBuild: boolean;
 }): string {
   return Option.getOrElse(normalizeConfiguredBaseDir(input.t3Home), () =>
-    input.joinPath(input.homeDirectory, ".t3"),
+    input.joinPath(input.homeDirectory, input.isForkHubBuild ? ".t3-forkhub" : ".t3"),
   );
 }
 
