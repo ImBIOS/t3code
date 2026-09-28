@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { checkForkHubOwner, normalizeForkHubOwner } from "./forkHub.logic";
+import { checkForkHubOwner, normalizeForkHubOwner, resolveTrainsFromUpstreamManifest } from "./forkHub.logic";
 
 function jsonResponse(status: number, body: unknown): Response {
   return {
@@ -8,6 +8,13 @@ function jsonResponse(status: number, body: unknown): Response {
     ok: status >= 200 && status < 300,
     json: async () => body,
   } as Response;
+}
+
+function manifestResponse(trains: unknown): Response {
+  return jsonResponse(200, {
+    encoding: "base64",
+    content: Buffer.from(JSON.stringify({ trains })).toString("base64"),
+  });
 }
 
 describe("normalizeForkHubOwner", () => {
@@ -36,7 +43,8 @@ describe("checkForkHubOwner", () => {
       hasStableTrain: true,
       hasNightlyTrain: false,
     });
-    expect(fetchImpl).toHaveBeenCalledOnce();
+    // Releases call plus manifest call (manifest misses here, tag scan decides).
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
   it("labels latest with a version tag, not a newer bundle tag", async () => {
@@ -93,5 +101,54 @@ describe("checkForkHubOwner", () => {
       checkForkHubOwner("not a name!", fetchImpl as unknown as typeof fetch),
     ).rejects.toThrow("not a valid GitHub profile");
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
+
+describe("resolveTrainsFromUpstreamManifest", () => {
+  it("reads the declared trains", () => {
+    expect(resolveTrainsFromUpstreamManifest({ trains: ["nightly"] })).toEqual({
+      hasStableTrain: false,
+      hasNightlyTrain: true,
+    });
+    expect(resolveTrainsFromUpstreamManifest({ trains: ["stable", "nightly"] })).toEqual({
+      hasStableTrain: true,
+      hasNightlyTrain: true,
+    });
+    expect(resolveTrainsFromUpstreamManifest({ trains: ["Stable"] })).toEqual({
+      hasStableTrain: true,
+      hasNightlyTrain: false,
+    });
+  });
+
+  it("returns null without a usable trains list", () => {
+    expect(resolveTrainsFromUpstreamManifest({})).toBeNull();
+    expect(resolveTrainsFromUpstreamManifest({ trains: ["canary"] })).toBeNull();
+    expect(resolveTrainsFromUpstreamManifest(null)).toBeNull();
+  });
+});
+
+describe("checkForkHubOwner trains", () => {
+  it("prefers the catalog manifest over the tag scan", async () => {
+    const fetchImpl = vi.fn(async (url: string) =>
+      String(url).includes("/contents/")
+        ? manifestResponse(["nightly"])
+        : jsonResponse(200, [
+            { tag_name: "v2.8.1-fh.with-fh.1" },
+            { tag_name: "v0.0.43-nightly.20260928.2375.fh.with-fh.1" },
+          ]),
+    );
+    const result = await checkForkHubOwner("with-fh", fetchImpl as unknown as typeof fetch);
+    expect(result).toMatchObject({ hasStableTrain: false, hasNightlyTrain: true });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("falls back to the tag scan without a manifest entry", async () => {
+    const fetchImpl = vi.fn(async (url: string) =>
+      String(url).includes("/contents/")
+        ? jsonResponse(404, { message: "Not Found" })
+        : jsonResponse(200, [{ tag_name: "v1.0.0" }]),
+    );
+    const result = await checkForkHubOwner("with-fh", fetchImpl as unknown as typeof fetch);
+    expect(result).toMatchObject({ hasStableTrain: true, hasNightlyTrain: false });
   });
 });

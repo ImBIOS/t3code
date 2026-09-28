@@ -34,12 +34,14 @@ import * as IpcChannels from "../ipc/channels.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import { normalizeDesktopUpdateReleaseNotes } from "./releaseNotes.ts";
 import {
+  FORKHUB_T3CODE_UPSTREAM_MANIFEST_PATH,
   isForkHubDerivedVersion,
   isVersionAllowedOnUpdateChannel,
   normalizeForkHubOwner,
   resolveCatalogTrains,
   resolveForkHubFeedConfig,
   resolveMigratedUpdateTrack,
+  resolveTrainsFromUpstreamManifest,
   type ForkHubCatalogTrains,
 } from "./updateChannels.ts";
 import {
@@ -260,6 +262,13 @@ function fetchForkHubCatalogTrains(
   repo: DesktopForkHubRepo,
 ): Effect.Effect<ForkHubCatalogTrains, Error> {
   return Effect.gen(function* () {
+    // Authoritative first: the catalog manifest declares per-target trains
+    // (`trains: ["nightly"]`), so other targets' releases in the same repo
+    // can never leak a phantom train into this app's track list.
+    const manifestTrains = yield* fetchTrainsFromUpstreamManifest(owner, repo).pipe(
+      Effect.option,
+    );
+    if (Option.isSome(manifestTrains)) return manifestTrains.value;
     const response = yield* Effect.tryPromise({
       try: () =>
         fetch(
@@ -282,6 +291,40 @@ function fetchForkHubCatalogTrains(
     });
     return resolveCatalogTrains(rows);
   }).pipe(Effect.timeout("15 seconds"));
+}
+
+function fetchTrainsFromUpstreamManifest(
+  owner: string,
+  repo: DesktopForkHubRepo,
+): Effect.Effect<ForkHubCatalogTrains, Error> {
+  return Effect.gen(function* () {
+    const response = yield* Effect.tryPromise({
+      try: () =>
+        fetch(
+          `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${FORKHUB_T3CODE_UPSTREAM_MANIFEST_PATH}`,
+          { headers: { Accept: "application/vnd.github+json" } },
+        ),
+      catch: (cause) => new Error(`Could not reach ${owner}/${repo} catalog manifest.`, { cause }),
+    });
+    if (!response.ok) {
+      return yield* Effect.fail(new Error(`No catalog manifest (HTTP ${response.status}).`));
+    }
+    const body = (yield* Effect.tryPromise({
+      try: () => response.json() as Promise<{ content?: unknown; encoding?: unknown }>,
+      catch: (cause) => new Error(`Could not parse catalog manifest.`, { cause }),
+    })) as { content?: unknown; encoding?: unknown };
+    if (body.encoding !== "base64" || typeof body.content !== "string") {
+      return yield* Effect.fail(new Error(`Unexpected catalog manifest encoding.`));
+    }
+    const document = JSON.parse(
+      Buffer.from(body.content, "base64").toString("utf8"),
+    ) as unknown;
+    const trains = resolveTrainsFromUpstreamManifest(document);
+    if (!trains) {
+      return yield* Effect.fail(new Error(`Catalog manifest declares no trains.`));
+    }
+    return trains;
+  });
 }
 
 function shouldBroadcastDownloadProgress(

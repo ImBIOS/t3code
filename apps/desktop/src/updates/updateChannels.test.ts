@@ -6,6 +6,7 @@ import {
   isVersionAllowedOnUpdateChannel,
   normalizeForkHubOwner,
   resolveCatalogTrains,
+  resolveTrainsFromUpstreamManifest,
   resolveDefaultDesktopUpdateChannel,
   resolveForkHubFeedConfig,
   resolveMigratedUpdateTrack,
@@ -91,8 +92,7 @@ describe("updateChannels", () => {
     expect(resolveDefaultDesktopUpdateChannel("0.0.42-fh.with-fh.1")).toBe("latest");
   });
 
-  it("detects catalog trains from versioned updater tags only", () => {
-    expect(
+  it("detects catalog trains from versioned updater tags only", () => {    expect(
       resolveCatalogTrains([
         { tag_name: "pingdotgg-t3code--v0.0.43-nightly.20260928.2375-fh1", draft: false },
         { tag_name: "v0.0.43-nightly.20260928.2375.fh.with-fh.1", draft: false },
@@ -142,5 +142,47 @@ describe("updateChannels", () => {
     expect(
       resolveMigratedUpdateTrack("nightly", { hasStableTrain: false, hasNightlyTrain: true }),
     ).toBe("nightly");
+  });
+});
+
+describe("resolveTrainsFromUpstreamManifest", () => {
+  it("reads the declared trains", () => {
+    expect(resolveTrainsFromUpstreamManifest({ trains: ["nightly"] })).toEqual({
+      hasStableTrain: false,
+      hasNightlyTrain: true,
+    });
+    expect(resolveTrainsFromUpstreamManifest({ trains: ["stable", "nightly"] })).toEqual({
+      hasStableTrain: true,
+      hasNightlyTrain: true,
+    });
+  });
+
+  it("returns null without a usable trains list", () => {
+    expect(resolveTrainsFromUpstreamManifest({})).toBeNull();
+    expect(resolveTrainsFromUpstreamManifest({ trains: ["canary"] })).toBeNull();
+    expect(resolveTrainsFromUpstreamManifest(null)).toBeNull();
+  });
+});
+
+describe("resolveTrainsFromUpstreamManifest", () => {
+  it("reads the declared trains", () => {
+    expect(resolveTrainsFromUpstreamManifest({ trains: ["nightly"] })).toEqual({
+      hasStableTrain: false,
+      hasNightlyTrain: true,
+    });
+    expect(resolveTrainsFromUpstreamManifest({ trains: ["stable", "nightly"] })).toEqual({
+      hasStableTrain: true,
+      hasNightlyTrain: true,
+    });
+    expect(resolveTrainsFromUpstreamManifest({ trains: ["Stable"] })).toEqual({
+      hasStableTrain: true,
+      hasNightlyTrain: false,
+    });
+  });
+
+  it("returns null without a usable trains list", () => {
+    expect(resolveTrainsFromUpstreamManifest({})).toBeNull();
+    expect(resolveTrainsFromUpstreamManifest({ trains: ["canary"] })).toBeNull();
+    expect(resolveTrainsFromUpstreamManifest(null)).toBeNull();
   });
 });

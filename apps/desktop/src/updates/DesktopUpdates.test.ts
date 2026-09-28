@@ -810,7 +810,7 @@ describe("DesktopUpdates", () => {
       env: { T3CODE_HOME: "" },
     });
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async () => ({
+    globalThis.fetch = (async (_url: unknown) => ({
       ok: true,
       status: 200,
       json: async () => [{ tag_name: "v0.0.43-nightly.20260928.2375.fh.with-fh.2" }],
@@ -835,16 +835,62 @@ describe("DesktopUpdates", () => {
     );
   });
 
+  it.effect("prefers the catalog manifest over the tag scan", () => {
+    const harness = makeHarness({
+      appVersion: "0.0.43-nightly.20260928.2375.fh.with-fh.2",
+      env: { T3CODE_HOME: "" },
+    });
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: unknown) => {
+      if (String(url).includes("/contents/")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            encoding: "base64",
+            content: Buffer.from(JSON.stringify({ trains: ["nightly"] })).toString("base64"),
+          }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => [
+          { tag_name: "v2.8.1-fh.with-fh.1" },
+          { tag_name: "v0.0.43-nightly.20260928.2375.fh.with-fh.2" },
+        ],
+      };
+    }) as unknown as typeof fetch;
+
+    return Effect.scoped(
+      Effect.gen(function* () {
+        const updates = yield* DesktopUpdates.DesktopUpdates;
+        yield* updates.configure;
+
+        const state = yield* updates.getState;
+        assert.equal(state.forkhubHasStableTrain, false);
+        assert.equal(state.forkhubHasNightlyTrain, true);
+      }),
+    ).pipe(
+      Effect.provide(Layer.merge(TestClock.layer(), harness.layer)),
+      Effect.ensuring(
+        Effect.sync(() => {
+          globalThis.fetch = originalFetch;
+        }),
+      ),
+    );
+  });
+
   it.effect("skips boot train discovery on an explicit home", () => {
     const harness = makeHarness({
       appVersion: "0.0.43-nightly.20260928.2375.fh.with-fh.2",
     });
     const originalFetch = globalThis.fetch;
     let fetched = false;
-    globalThis.fetch = (async () => {
+    globalThis.fetch = (async (_url: unknown) => {
       fetched = true;
       return { ok: true, status: 200, json: async () => [] };
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     return Effect.scoped(
       Effect.gen(function* () {

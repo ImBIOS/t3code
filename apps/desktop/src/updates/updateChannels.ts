@@ -69,6 +69,33 @@ export interface ForkHubCatalogTrains {
   readonly hasNightlyTrain: boolean;
 }
 
+// Authoritative trains for THIS app's target, read from the publisher's
+// catalog manifest. Catalogs key targets by upstream coordinates, so the
+// t3code entry lives at this path in every publisher's `.forkhub` repo
+// (foreign publishers without it fall back to the tag scan below).
+export const FORKHUB_T3CODE_UPSTREAM_MANIFEST_PATH =
+  "repos/github.com/pingdotgg/t3code/upstream.json";
+
+const FORKHUB_STABLE_TRAIN_NAMES = new Set(["stable", "latest", "default"]);
+
+// `trains` mirrors the build workflow's train names (`nightly`, `stable`).
+// Returns null when the document carries no usable trains list.
+export function resolveTrainsFromUpstreamManifest(document: unknown): ForkHubCatalogTrains | null {
+  if (typeof document !== "object" || document === null) return null;
+  const trains = (document as { trains?: unknown }).trains;
+  if (!Array.isArray(trains)) return null;
+  const names = new Set(
+    trains.filter((train): train is string => typeof train === "string").map((train) => train.toLowerCase()),
+  );
+  if (!names.has("nightly") && ![...FORKHUB_STABLE_TRAIN_NAMES].some((name) => names.has(name))) {
+    return null;
+  }
+  return {
+    hasStableTrain: [...FORKHUB_STABLE_TRAIN_NAMES].some((name) => names.has(name)),
+    hasNightlyTrain: names.has("nightly"),
+  };
+}
+
 interface CatalogReleaseRow {
   readonly tag_name?: unknown;
   readonly draft?: unknown;
