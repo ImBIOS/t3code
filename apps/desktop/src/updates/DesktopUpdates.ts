@@ -39,6 +39,7 @@ import {
   isVersionAllowedOnUpdateChannel,
   normalizeForkHubOwner,
   resolveCatalogTrains,
+  resolveSupportedTrains,
   resolveForkHubFeedConfig,
   resolveMigratedUpdateTrack,
   resolveTrainsFromUpstreamManifest,
@@ -264,11 +265,31 @@ function fetchForkHubCatalogTrains(
   return Effect.gen(function* () {
     // Authoritative first: the catalog manifest declares per-target trains
     // (`trains: ["nightly"]`), so other targets' releases in the same repo
-    // can never leak a phantom train into this app's track list.
+    // can never leak a phantom train into this app's track list. The
+    // manifest is then verified against this target's shipped bundle
+    // releases, so a declared-but-unbuilt train is never offered.
     const manifestTrains = yield* fetchTrainsFromUpstreamManifest(owner, repo).pipe(
       Effect.option,
     );
-    if (Option.isSome(manifestTrains)) return manifestTrains.value;
+    const rows = yield* fetchCatalogReleaseRows(owner, repo).pipe(Effect.option);
+    if (Option.isSome(manifestTrains)) {
+      return resolveSupportedTrains(
+        manifestTrains.value,
+        Option.getOrElse(rows, () => null),
+      );
+    }
+    if (Option.isNone(rows)) {
+      return yield* Effect.fail(new Error(`Could not check ${owner}/${repo} releases.`));
+    }
+    return resolveCatalogTrains(rows.value);
+  }).pipe(Effect.timeout("15 seconds"));
+}
+
+function fetchCatalogReleaseRows(
+  owner: string,
+  repo: DesktopForkHubRepo,
+): Effect.Effect<unknown, Error> {
+  return Effect.gen(function* () {
     const response = yield* Effect.tryPromise({
       try: () =>
         fetch(
@@ -285,12 +306,11 @@ function fetchForkHubCatalogTrains(
         new Error(`Could not check ${owner}/${repo} (HTTP ${response.status}).`),
       );
     }
-    const rows = yield* Effect.tryPromise({
+    return yield* Effect.tryPromise({
       try: () => response.json() as Promise<unknown>,
       catch: (cause) => new Error(`Could not parse ${owner}/${repo} releases.`, { cause }),
     });
-    return resolveCatalogTrains(rows);
-  }).pipe(Effect.timeout("15 seconds"));
+  });
 }
 
 function fetchTrainsFromUpstreamManifest(

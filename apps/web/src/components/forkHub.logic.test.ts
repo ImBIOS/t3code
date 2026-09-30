@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { checkForkHubOwner, normalizeForkHubOwner, resolveTrainsFromUpstreamManifest } from "./forkHub.logic";
+import { checkForkHubOwner, normalizeForkHubOwner, resolveReleasedTrains, resolveSupportedTrains, resolveTrainsFromUpstreamManifest } from "./forkHub.logic";
 
 function jsonResponse(status: number, body: unknown): Response {
   return {
@@ -150,5 +150,72 @@ describe("checkForkHubOwner trains", () => {
     );
     const result = await checkForkHubOwner("with-fh", fetchImpl as unknown as typeof fetch);
     expect(result).toMatchObject({ hasStableTrain: true, hasNightlyTrain: false });
+  });
+
+  it("hides a declared train with no shipped builds", async () => {
+    const fetchImpl = vi.fn(async (url: string) =>
+      String(url).includes("/contents/")
+        ? manifestResponse(["stable", "nightly"])
+        : jsonResponse(200, [
+            { tag_name: "pingdotgg-t3code--v0.0.45-nightly.20260930.2468-fh1" },
+            { tag_name: "v0.0.45-nightly.20260930.2468.fh.with-fh.1" },
+          ]),
+    );
+    const result = await checkForkHubOwner("with-fh", fetchImpl as unknown as typeof fetch);
+    expect(result).toMatchObject({ hasStableTrain: false, hasNightlyTrain: true });
+  });
+});
+
+describe("resolveReleasedTrains", () => {
+  const slug = "pingdotgg-t3code";
+  it("reads trains from this target's bundle tags only", () => {
+    expect(
+      resolveReleasedTrains(
+        [
+          { tag_name: "pingdotgg-t3code--v0.0.45-nightly.20260930.2468-fh1" },
+          { tag_name: "pingdotgg-t3code--v0.0.44-fh2" },
+          // Another target's stable build: not ours.
+          { tag_name: "natively-ai-assistant-natively-cluely-ai-assistant--V2.8.8-fh16" },
+          { tag_name: "v2.8.8-fh.with-fh.3" },
+          // Updater tags carry no target: ignored for verification.
+          { tag_name: "v0.0.45-nightly.20260930.2468.fh.with-fh.1" },
+          { tag_name: "v2.8.8-fh.with-fh.3", draft: true },
+        ],
+        slug,
+      ),
+    ).toEqual({ hasStableTrain: true, hasNightlyTrain: true, hasBundleEvidence: true });
+  });
+
+  it("matches capital-V bundle tags and reports no evidence without them", () => {
+    expect(
+      resolveReleasedTrains(
+        [{ tag_name: "PingDotGG-T3Code--V0.0.45-nightly.20260930.2468-fh1" }],
+        slug,
+      ),
+    ).toMatchObject({ hasNightlyTrain: true, hasBundleEvidence: true });
+    expect(resolveReleasedTrains([{ tag_name: "v0.0.45-nightly.20260930.2468.fh.with-fh.1" }], slug)).toEqual({
+      hasStableTrain: false,
+      hasNightlyTrain: false,
+      hasBundleEvidence: false,
+    });
+    expect(resolveReleasedTrains(null, slug).hasBundleEvidence).toBe(false);
+  });
+});
+
+describe("resolveSupportedTrains", () => {
+  it("intersects declared trains with shipped builds", () => {
+    const nightlyOnlyBundles = [{ tag_name: "pingdotgg-t3code--v0.0.45-nightly.20260930.2468-fh1" }];
+    expect(
+      resolveSupportedTrains({ hasStableTrain: true, hasNightlyTrain: true }, nightlyOnlyBundles),
+    ).toEqual({ hasStableTrain: false, hasNightlyTrain: true });
+    expect(
+      resolveSupportedTrains({ hasStableTrain: false, hasNightlyTrain: true }, nightlyOnlyBundles),
+    ).toEqual({ hasStableTrain: false, hasNightlyTrain: true });
+  });
+
+  it("trusts the manifest without bundle evidence", () => {
+    const declared = { hasStableTrain: true, hasNightlyTrain: true };
+    expect(resolveSupportedTrains(declared, [{ tag_name: "v1.0.0" }])).toEqual(declared);
+    expect(resolveSupportedTrains(declared, null)).toEqual(declared);
   });
 });

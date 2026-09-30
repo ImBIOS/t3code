@@ -136,6 +136,63 @@ function isUsableCatalogRelease(row: unknown): boolean {
   return candidate.draft !== true && typeof candidate.tag_name === "string";
 }
 
+// Target slug matching the shared builder's namespaced bundle tags:
+// `github.com/pingdotgg/t3code` builds ship as
+// `pingdotgg-t3code--v<upstream-tag>-fh<n>`. Bundle tags (unlike updater
+// tags) name their target, so they attribute releases to the right app in
+// a shared catalog.
+export const FORKHUB_T3CODE_TARGET_SLUG = "pingdotgg-t3code";
+
+export interface ForkHubReleasedTrains {
+  readonly hasStableTrain: boolean;
+  readonly hasNightlyTrain: boolean;
+  /** False when no bundle tag names this target — nothing to verify against. */
+  readonly hasBundleEvidence: boolean;
+}
+
+// Trains with actual releases behind them, read from this target's bundle
+// tags only. Updater tags (`v…​.fh.<owner>.<n>`) carry no target, so they
+// stay out: another target's stable build must never count for this app.
+export function resolveReleasedTrains(rows: unknown, targetSlug: string): ForkHubReleasedTrains {
+  const prefix = `${targetSlug.toLowerCase()}--v`;
+  let hasStableTrain = false;
+  let hasNightlyTrain = false;
+  let hasBundleEvidence = false;
+  if (!Array.isArray(rows)) return { hasStableTrain, hasNightlyTrain, hasBundleEvidence };
+  for (const row of rows) {
+    if (!isUsableCatalogRelease(row)) continue;
+    const lower = ((row as CatalogReleaseRow).tag_name as string).toLowerCase();
+    if (!lower.startsWith(prefix)) continue;
+    hasBundleEvidence = true;
+    const base = lower.slice(prefix.length).replace(/-fh\d+$/, "");
+    if (!/^\d+\.\d+\.\d+/.test(base)) continue;
+    if (/-nightly\.\d{8}\./.test(base)) {
+      hasNightlyTrain = true;
+    } else if (/-preview\.\d{8}\./.test(base) || /-pr\./.test(base)) {
+      continue;
+    } else {
+      hasStableTrain = true;
+    }
+  }
+  return { hasStableTrain, hasNightlyTrain, hasBundleEvidence };
+}
+
+// Manifest trains verified against shipped releases: a track counts as
+// supported only when the catalog both declares it AND serves builds for
+// it. Without bundle evidence (nothing built yet, legacy publishers) the
+// manifest stands on its own.
+export function resolveSupportedTrains(
+  manifestTrains: ForkHubCatalogTrains,
+  releaseRows: unknown,
+): ForkHubCatalogTrains {
+  const released = resolveReleasedTrains(releaseRows, FORKHUB_T3CODE_TARGET_SLUG);
+  if (!released.hasBundleEvidence) return manifestTrains;
+  return {
+    hasStableTrain: manifestTrains.hasStableTrain && released.hasStableTrain,
+    hasNightlyTrain: manifestTrains.hasNightlyTrain && released.hasNightlyTrain,
+  };
+}
+
 // Which tracks the Update track selector offers. Unknown trains (never
 // Checked) leave both; a publisher serving one train narrows the list.
 export function resolveVisibleUpdateTracks(input: {

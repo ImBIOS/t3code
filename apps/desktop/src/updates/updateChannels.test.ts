@@ -7,6 +7,8 @@ import {
   normalizeForkHubOwner,
   resolveCatalogTrains,
   resolveForkHubVersionOwner,
+  resolveReleasedTrains,
+  resolveSupportedTrains,
   resolveTrainsFromUpstreamManifest,
   resolveDefaultDesktopUpdateChannel,
   resolveForkHubFeedConfig,
@@ -140,8 +142,47 @@ describe("updateChannels", () => {
     ]);
   });
 
-  it("migrates the track when the publisher drops it", () => {
+  it("verifies declared trains against this target's bundle releases", () => {
+    const slug = "pingdotgg-t3code";
     expect(
+      resolveReleasedTrains(
+        [
+          { tag_name: "pingdotgg-t3code--v0.0.45-nightly.20260930.2468-fh1" },
+          { tag_name: "pingdotgg-t3code--v0.0.44-fh2" },
+          { tag_name: "natively-ai-assistant-natively-cluely-ai-assistant--V2.8.8-fh16" },
+          { tag_name: "v2.8.8-fh.with-fh.3" },
+          { tag_name: "v0.0.45-nightly.20260930.2468.fh.with-fh.1" },
+        ],
+        slug,
+      ),
+    ).toEqual({ hasStableTrain: true, hasNightlyTrain: true, hasBundleEvidence: true });
+    expect(
+      resolveReleasedTrains(
+        [{ tag_name: "pingdotgg-t3code--v0.0.45-nightly.20260930.2468-fh1" }],
+        slug,
+      ),
+    ).toEqual({ hasStableTrain: false, hasNightlyTrain: true, hasBundleEvidence: true });
+    // Updater tags name no target; drafts do not count; nothing usable at all.
+    expect(
+      resolveReleasedTrains([{ tag_name: "v0.0.45-nightly.20260930.2468.fh.with-fh.1" }], slug),
+    ).toEqual({ hasStableTrain: false, hasNightlyTrain: false, hasBundleEvidence: false });
+    expect(resolveReleasedTrains("nope", slug).hasBundleEvidence).toBe(false);
+  });
+
+  it("offers only declared trains with shipped builds behind them", () => {
+    const nightlyOnlyBundles = [{ tag_name: "pingdotgg-t3code--v0.0.45-nightly.20260930.2468-fh1" }];
+    expect(
+      resolveSupportedTrains({ hasStableTrain: true, hasNightlyTrain: true }, nightlyOnlyBundles),
+    ).toEqual({ hasStableTrain: false, hasNightlyTrain: true });
+    expect(
+      resolveSupportedTrains({ hasStableTrain: false, hasNightlyTrain: true }, nightlyOnlyBundles),
+    ).toEqual({ hasStableTrain: false, hasNightlyTrain: true });
+    const declared = { hasStableTrain: true, hasNightlyTrain: true };
+    expect(resolveSupportedTrains(declared, [{ tag_name: "v1.0.0" }])).toEqual(declared);
+    expect(resolveSupportedTrains(declared, null)).toEqual(declared);
+  });
+
+  it("migrates the track when the publisher drops it", () => {    expect(
       resolveMigratedUpdateTrack("latest", { hasStableTrain: true, hasNightlyTrain: true }),
     ).toBe("latest");
     expect(

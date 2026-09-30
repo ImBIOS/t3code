@@ -74,6 +74,61 @@ export function resolveCatalogTrains(rows: unknown): ForkHubCatalogTrains {
   };
 }
 
+// Target slug matching the shared builder's namespaced bundle tags:
+// `github.com/pingdotgg/t3code` builds ship as
+// `pingdotgg-t3code--v<upstream-tag>-fh<n>`. Bundle tags (unlike updater
+// tags) name their target, so they attribute releases to the right app in
+// a shared catalog. Mirrors the main-process verifier
+// (apps/desktop/src/updates/updateChannels.ts) for renderer-side Check.
+export const FORKHUB_T3CODE_TARGET_SLUG = "pingdotgg-t3code";
+
+export interface ForkHubReleasedTrains {
+  readonly hasStableTrain: boolean;
+  readonly hasNightlyTrain: boolean;
+  /** False when no bundle tag names this target — nothing to verify against. */
+  readonly hasBundleEvidence: boolean;
+}
+
+export function resolveReleasedTrains(rows: unknown, targetSlug: string): ForkHubReleasedTrains {
+  const prefix = `${targetSlug.toLowerCase()}--v`;
+  let hasStableTrain = false;
+  let hasNightlyTrain = false;
+  let hasBundleEvidence = false;
+  if (!Array.isArray(rows)) return { hasStableTrain, hasNightlyTrain, hasBundleEvidence };
+  for (const row of rows) {
+    if (!isUsableRelease(row)) continue;
+    const lower = ((row as GitHubReleaseRow).tag_name as string).toLowerCase();
+    if (!lower.startsWith(prefix)) continue;
+    hasBundleEvidence = true;
+    const base = lower.slice(prefix.length).replace(/-fh\d+$/, "");
+    if (!/^\d+\.\d+\.\d+/.test(base)) continue;
+    if (/-nightly\.\d{8}\./.test(base)) {
+      hasNightlyTrain = true;
+    } else if (/-preview\.\d{8}\./.test(base) || /-pr\./.test(base)) {
+      continue;
+    } else {
+      hasStableTrain = true;
+    }
+  }
+  return { hasStableTrain, hasNightlyTrain, hasBundleEvidence };
+}
+
+// Manifest trains verified against shipped releases: a track counts as
+// supported only when the catalog both declares it AND serves builds for
+// it. Without bundle evidence (nothing built yet, legacy publishers) the
+// manifest stands on its own.
+export function resolveSupportedTrains(
+  manifestTrains: ForkHubCatalogTrains,
+  releaseRows: unknown,
+): ForkHubCatalogTrains {
+  const released = resolveReleasedTrains(releaseRows, FORKHUB_T3CODE_TARGET_SLUG);
+  if (!released.hasBundleEvidence) return manifestTrains;
+  return {
+    hasStableTrain: manifestTrains.hasStableTrain && released.hasStableTrain,
+    hasNightlyTrain: manifestTrains.hasNightlyTrain && released.hasNightlyTrain,
+  };
+}
+
 export function forkHubRepoWebUrl(owner: string, repo: DesktopForkHubRepo): string {
   return `https://github.com/${owner}/${repo}/releases`;
 }
@@ -169,11 +224,13 @@ export async function checkForkHubOwner(
     );
   }
   // Authoritative trains first: the catalog manifest declares per-target
-  // trains. Falls back to the tag scan when the publisher has no manifest
-  // entry for this app.
+  // trains. Verified against this target's shipped bundle releases, so a
+  // declared-but-unbuilt train is never offered. Falls back to the tag scan
+  // when the publisher has no manifest entry for this app.
   const manifestTrains = await readTrainsFromUpstreamManifest(owner, repo, fetchImpl);
-  const { hasStableTrain, hasNightlyTrain } =
-    manifestTrains ?? resolveCatalogTrains(releases);
+  const { hasStableTrain, hasNightlyTrain } = manifestTrains
+    ? resolveSupportedTrains(manifestTrains, rows)
+    : resolveCatalogTrains(releases);
   if (!hasStableTrain && !hasNightlyTrain) {
     throw new Error(
       `${owner}/${repo} has releases but serves neither the stable nor the nightly train. Ask them to publish a ForkHub build first.`,
