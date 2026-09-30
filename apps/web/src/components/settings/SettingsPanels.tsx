@@ -418,6 +418,7 @@ function AboutVersionSection() {
           description: [
             result.message,
             result.backups.length > 0 ? `Backups: ${result.backups.join(", ")}.` : null,
+            result.dbBackup ? `Database backup: ${result.dbBackup}.` : null,
           ]
             .filter((part) => part !== null)
             .join(" "),
@@ -741,14 +742,43 @@ function AboutVersionSection() {
                     first, and moved environments reconnect with one click. Quit and reopen
                     T3 Code afterwards to apply.
                   </p>
+                  {transferPreview.threadsToMoveTotal > 0 ||
+                  transferPreview.projectsToMoveTotal > 0 ? (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Conversations: {transferPreview.threadsToMoveTotal} thread
+                      {transferPreview.threadsToMoveTotal === 1 ? "" : "s"} in{" "}
+                      {transferPreview.projectsToMoveTotal} project
+                      {transferPreview.projectsToMoveTotal === 1 ? "" : "s"} (+
+                      {transferPreview.messagesToMoveTotal} messages,{" "}
+                      {transferPreview.eventsToMoveTotal} events
+                      {transferPreview.projectsToMove.length > 0
+                        ? ` — ${transferPreview.projectsToMove.join(", ")}${
+                            transferPreview.projectsToMoveTotal >
+                            transferPreview.projectsToMove.length
+                              ? ", …"
+                              : ""
+                          }`
+                        : ""}
+                      ). Moved threads keep their full history; pick up where you left off
+                      after the restart.
+                    </p>
+                 ) : transferPreview.dbNote ? (
+                    <p className="mt-2 text-xs text-muted-foreground">{transferPreview.dbNote}</p>
+                  ) : (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Conversations are already in sync.
+                    </p>
+                  )}
                   <div className="mt-3 flex gap-2">
                     <Button
                       size="sm"
                       disabled={
                         isTransferBusy ||
-                        !transferPreview.files.some(
+                        (!transferPreview.files.some(
                           (file) => file.status === "new" || file.status === "updated",
-                        )
+                        ) &&
+                          transferPreview.threadsToMoveTotal === 0 &&
+                          transferPreview.projectsToMoveTotal === 0)
                       }
                       onClick={() => void handleTransferApply()}
                     >

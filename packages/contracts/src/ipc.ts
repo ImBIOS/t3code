@@ -401,6 +401,12 @@ export const ForkHubStateTransferPreviewSchema = Schema.Struct({
   direction: ForkHubStateTransferDirectionSchema,
   otherHomeFound: Schema.Boolean,
   files: Schema.Array(ForkHubStateTransferFilePreviewSchema),
+  projectsToMove: Schema.Array(Schema.String),
+  projectsToMoveTotal: Schema.Number,
+  threadsToMoveTotal: Schema.Number,
+  messagesToMoveTotal: Schema.Number,
+  eventsToMoveTotal: Schema.Number,
+  dbNote: Schema.NullOr(Schema.String),
 });
 export type ForkHubStateTransferPreview = typeof ForkHubStateTransferPreviewSchema.Type;
 
@@ -411,6 +417,10 @@ export const ForkHubStateTransferResultSchema = Schema.Struct({
   addedEnvironmentsTotal: Schema.Number,
   updatedEnvironmentsTotal: Schema.Number,
   changedKeysTotal: Schema.Number,
+  projectsMovedTotal: Schema.Number,
+  threadsMovedTotal: Schema.Number,
+  messagesMovedTotal: Schema.Number,
+  dbBackup: Schema.NullOr(Schema.String),
   errors: Schema.Array(Schema.String),
   message: Schema.String,
 });

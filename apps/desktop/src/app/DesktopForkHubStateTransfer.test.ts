@@ -4,14 +4,20 @@ import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as NodeFs from "node:fs";
+import * as NodeOs from "node:os";
+import * as NodePathNative from "node:path";
+import * as NodeSqlite from "node:sqlite";
 
 import * as DesktopConfig from "./DesktopConfig.ts";
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
 import {
+  applyDbTransfer,
   applyForkHubStateTransfer,
   mergeRegistryFile,
   mergeSettingsFile,
   parseJsonObject,
+  previewDbTransfer,
   previewForkHubStateTransfer,
 } from "./DesktopForkHubStateTransfer.ts";
 
@@ -283,4 +289,195 @@ describe("DesktopForkHubStateTransfer", () => {
       },
     ),
   );
+});
+
+const DB_FIXTURE_SCHEMA = `
+CREATE TABLE orchestration_events (
+  sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id TEXT NOT NULL UNIQUE,
+  aggregate_kind TEXT NOT NULL,
+  stream_id TEXT NOT NULL,
+  stream_version INTEGER NOT NULL,
+  event_type TEXT NOT NULL,
+  occurred_at TEXT NOT NULL,
+  command_id TEXT,
+  causation_event_id TEXT,
+  correlation_id TEXT,
+  actor_kind TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  metadata_json TEXT NOT NULL
+);
+CREATE TABLE projection_projects (project_id TEXT PRIMARY KEY, title TEXT NOT NULL);
+CREATE TABLE projection_threads (thread_id TEXT PRIMARY KEY, project_id TEXT NOT NULL, title TEXT NOT NULL);
+CREATE TABLE projection_thread_messages (message_id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, text TEXT NOT NULL, attachments_json TEXT);
+CREATE TABLE effect_sql_migrations (migration_id TEXT PRIMARY KEY);
+`;
+
+function makeFixtureDb(path: string, seed: (db: NodeSqlite.DatabaseSync) => void): void {
+  const db = new NodeSqlite.DatabaseSync(path);
+  db.exec(DB_FIXTURE_SCHEMA);
+  db.exec(`INSERT INTO effect_sql_migrations (migration_id) VALUES ('001'), ('002')`);
+  seed(db);
+  db.close();
+}
+
+function seedSourceDb(db: NodeSqlite.DatabaseSync): void {
+  db.exec(
+    `INSERT INTO projection_projects (project_id, title) VALUES ('proj-1', 'Alpha'), ('proj-2', 'Beta')`,
+  );
+  db.exec(
+    `INSERT INTO projection_threads (thread_id, project_id, title) VALUES ('thread-1', 'proj-1', 'T1'), ('thread-2', 'proj-1', 'T2'), ('thread-3', 'proj-2', 'T3')`,
+  );
+  db.exec(
+    `INSERT INTO projection_thread_messages (message_id, thread_id, text, attachments_json) VALUES
+     ('msg-1', 'thread-1', 'hello', '[{"id":"thread-1-uuid.png"}]'),
+     ('msg-2', 'thread-1', 'world', NULL),
+     ('msg-3', 'thread-3', 'hi', NULL)`,
+  );
+  const event = (id: string, kind: string, stream: string, version: number) =>
+    db
+      .prepare(
+        `INSERT INTO orchestration_events (event_id, aggregate_kind, stream_id, stream_version, event_type, occurred_at, actor_kind, payload_json, metadata_json) VALUES (?, ?, ?, ?, 'Test', '2026-09-30T00:00:00Z', 'client', '{}', '{}')`,
+      )
+      .run(id, kind, stream, version);
+  event("evt-p1", "project", "proj-1", 1);
+  event("evt-p2", "project", "proj-2", 1);
+  event("evt-t1", "thread", "thread-1", 1);
+  event("evt-t2", "thread", "thread-1", 2);
+  event("evt-t3", "thread", "thread-2", 1);
+  event("evt-t4", "thread", "thread-3", 1);
+}
+
+describe("DesktopForkHubStateTransfer conversations", () => {
+  it("previews project, thread, message, and event counts", () => {
+    const dir = NodeFs.mkdtempSync(NodePathNative.join(NodeOs.tmpdir(), "t3-xfer-preview-"));
+    const source = NodePathNative.join(dir, "source.sqlite");
+    const dest = NodePathNative.join(dir, "dest.sqlite");
+    makeFixtureDb(source, seedSourceDb);
+    makeFixtureDb(dest, () => {});
+
+    const preview = previewDbTransfer(source, dest);
+
+    assert.isTrue(preview.available);
+    assert.equal(preview.projects, 2);
+    assert.equal(preview.threads, 3);
+    assert.equal(preview.messages, 3);
+    assert.equal(preview.events, 6);
+    assert.deepEqual([...preview.projectTitles].sort(), ["Alpha", "Beta"]);
+    assert.isNull(preview.note);
+    NodeFs.rmSync(dir, { recursive: true });
+  });
+
+  it("moves events, projections, and attachment files, then reruns as a no-op", () => {
+    const dir = NodeFs.mkdtempSync(NodePathNative.join(NodeOs.tmpdir(), "t3-xfer-apply-"));
+    const source = NodePathNative.join(dir, "source.sqlite");
+    const dest = NodePathNative.join(dir, "dest.sqlite");
+    makeFixtureDb(source, seedSourceDb);
+    makeFixtureDb(dest, () => {});
+    const sourceAttachments = NodePathNative.join(dir, "src-attachments");
+    const destAttachments = NodePathNative.join(dir, "dest-attachments");
+    NodeFs.mkdirSync(sourceAttachments, { recursive: true });
+    NodeFs.writeFileSync(NodePathNative.join(sourceAttachments, "thread-1-uuid.png"), "png-bytes");
+
+    const first = applyDbTransfer({
+      sourceDbPath: source,
+      destDbPath: dest,
+      backupDbPath: NodePathNative.join(dir, "dest.bak.sqlite"),
+      sourceAttachmentsDir: sourceAttachments,
+      destAttachmentsDir: destAttachments,
+      copyFile: (from, to) => NodeFs.copyFileSync(from, to),
+      makeDirectory: (target) => NodeFs.mkdirSync(target, { recursive: true }),
+    });
+
+    assert.equal(first.errors.length, 0);
+    assert.equal(first.projects, 2);
+    assert.equal(first.threads, 3);
+    assert.equal(first.messages, 3);
+    assert.equal(first.files, 1);
+    assert.isNotNull(first.backup);
+    const destDb = new NodeSqlite.DatabaseSync(dest, { readOnly: true });
+    try {
+      const events = (destDb.prepare("SELECT COUNT(*) AS n FROM orchestration_events").get() as { n: number }).n;
+      assert.equal(events, 6);
+      const threads = (destDb.prepare("SELECT COUNT(*) AS n FROM projection_threads").get() as { n: number }).n;
+      assert.equal(threads, 3);
+      // Identity tables are never created or touched by the move.
+      const tables = (
+        destDb.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>
+      ).map((row) => row.name);
+      assert.notInclude(tables, "auth_sessions");
+    } finally {
+      destDb.close();
+    }
+    assert.equal(NodeFs.readFileSync(NodePathNative.join(destAttachments, "thread-1-uuid.png"), "utf8"), "png-bytes");
+
+    // Rerun: every stream already present, nothing moves, no new backup.
+    const second = applyDbTransfer({
+      sourceDbPath: source,
+      destDbPath: dest,
+      backupDbPath: NodePathNative.join(dir, "dest.bak2.sqlite"),
+      sourceAttachmentsDir: sourceAttachments,
+      destAttachmentsDir: destAttachments,
+      copyFile: (from, to) => NodeFs.copyFileSync(from, to),
+      makeDirectory: (target) => NodeFs.mkdirSync(target, { recursive: true }),
+    });
+    assert.equal(second.errors.length, 0);
+    assert.equal(second.threads, 0);
+    assert.isNull(second.backup);
+    assert.isFalse(NodeFs.existsSync(NodePathNative.join(dir, "dest.bak2.sqlite")));
+    NodeFs.rmSync(dir, { recursive: true });
+  });
+
+  it("skips streams already present and tolerates a missing attachment file", () => {
+    const dir = NodeFs.mkdtempSync(NodePathNative.join(NodeOs.tmpdir(), "t3-xfer-skip-"));
+    const source = NodePathNative.join(dir, "source.sqlite");
+    const dest = NodePathNative.join(dir, "dest.sqlite");
+    makeFixtureDb(source, seedSourceDb);
+    makeFixtureDb(dest, (db) => {
+      db.exec(
+        `INSERT INTO orchestration_events (event_id, aggregate_kind, stream_id, stream_version, event_type, occurred_at, actor_kind, payload_json, metadata_json) VALUES ('evt-t3-dest', 'thread', 'thread-3', 1, 'Test', '2026-09-30T00:00:00Z', 'client', '{}', '{}')`,
+      );
+    });
+
+    const result = applyDbTransfer({
+      sourceDbPath: source,
+      destDbPath: dest,
+      backupDbPath: NodePathNative.join(dir, "dest.bak.sqlite"),
+      sourceAttachmentsDir: NodePathNative.join(dir, "missing-src"),
+      destAttachmentsDir: NodePathNative.join(dir, "dest-attachments"),
+      copyFile: (from, to) => NodeFs.copyFileSync(from, to),
+      makeDirectory: (target) => NodeFs.mkdirSync(target, { recursive: true }),
+    });
+
+    // thread-3 already on dest: only proj-1/proj-2 streams and thread-1/thread-2 move.
+    assert.equal(result.errors.length, 0);
+    assert.equal(result.projects, 2);
+    assert.equal(result.threads, 2);
+    // The thread-1 attachment source file is absent: skipped, move still succeeds.
+    assert.equal(result.files, 0);
+    NodeFs.rmSync(dir, { recursive: true });
+  });
+
+  it("reports a missing source database without failing", () => {
+    const preview = previewDbTransfer("/missing/source.sqlite", "/missing/dest.sqlite");
+    assert.isFalse(preview.available);
+    assert.isNotNull(preview.note);
+  });
+
+  it("warns when the source database runs newer migrations", () => {
+    const dir = NodeFs.mkdtempSync(NodePathNative.join(NodeOs.tmpdir(), "t3-xfer-skew-"));
+    const source = NodePathNative.join(dir, "source.sqlite");
+    const dest = NodePathNative.join(dir, "dest.sqlite");
+    makeFixtureDb(source, seedSourceDb);
+    makeFixtureDb(dest, (db) => {
+      db.exec(`DELETE FROM effect_sql_migrations WHERE migration_id = '002'`);
+    });
+
+    const preview = previewDbTransfer(source, dest);
+
+    assert.isTrue(preview.available);
+    assert.isNotNull(preview.note);
+    assert.include(preview.note ?? "", "newer");
+    NodeFs.rmSync(dir, { recursive: true });
+  });
 });
