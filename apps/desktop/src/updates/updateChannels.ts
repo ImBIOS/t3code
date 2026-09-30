@@ -15,6 +15,15 @@ const NIGHTLY_OR_FORKHUB_VERSION_PATTERN =
 export function isForkHubDerivedVersion(version: string): boolean {
   return FORKHUB_VERSION_SUFFIX_PATTERN.test(version);
 }
+
+// The publisher baked into a ForkHub version's provenance suffix
+// (`.fh.<owner>.<n>` / `-fh.<owner>.<n>`), e.g. `with-fh`. Names the
+// install after its publisher; null when the version carries no suffix.
+const FORKHUB_VERSION_OWNER_PATTERN = /[-.]fh\.([a-z0-9-]+)\.\d+$/;
+
+export function resolveForkHubVersionOwner(version: string): string | null {
+  return version.match(FORKHUB_VERSION_OWNER_PATTERN)?.[1] ?? null;
+}
 // Preview builds are the maintainers' test train, cut by hand from unreleased
 // branches to exercise the release flow. They share nightly's branding but
 // are packaged without an update feed (see

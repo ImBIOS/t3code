@@ -2624,8 +2624,17 @@ export function isForkHubDesktopBuild(): boolean {
 
 export function resolveDesktopProductName(version: string): string {
   // ForkHub builds install side by side with upstream under their own name
-  // so a patched install is never mistaken for a stock one.
-  if (isForkHubDesktopBuild()) return "T3 Code x ForkHub";
+  // so a patched install is never mistaken for a stock one. The name carries
+  // the publisher and train from the provenance suffix, e.g.
+  // "T3 Code (with-fh, Nightly)".
+  if (isForkHubDesktopBuild()) {
+    const owner = version.match(/[-.]fh\.([a-z0-9-]+)\.\d+$/)?.[1];
+    if (owner) {
+      const train = resolveDesktopUpdateChannel(version) === "nightly" ? "Nightly" : "Alpha";
+      return `T3 Code (${owner}, ${train})`;
+    }
+    return "T3 Code x ForkHub";
+  }
   return resolveDesktopUpdateChannel(version) === "nightly"
     ? "T3 Code (Nightly)"
     : (desktopPackageJson.productName ?? "T3 Code");

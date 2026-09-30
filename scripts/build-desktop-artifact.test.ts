@@ -264,6 +264,23 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     assert.equal(resolveDesktopProductName("0.0.17-nightly.20260413.42"), "T3 Code (Nightly)");
   });
 
+  it("names ForkHub builds after their publisher and train", () => {
+    const previous = process.env.T3CODE_FORKHUB_BUILD;
+    process.env.T3CODE_FORKHUB_BUILD = "1";
+    try {
+      assert.equal(
+        resolveDesktopProductName("0.0.45-nightly.20260930.2468.fh.with-fh.1"),
+        "T3 Code (with-fh, Nightly)",
+      );
+      assert.equal(resolveDesktopProductName("0.0.44-fh.with-fh.2"), "T3 Code (with-fh, Alpha)");
+      // Suffixed builds without a parseable owner keep the legacy name.
+      assert.equal(resolveDesktopProductName("0.0.45-nightly.20260930.2468"), "T3 Code x ForkHub");
+    } finally {
+      if (previous === undefined) delete process.env.T3CODE_FORKHUB_BUILD;
+      else process.env.T3CODE_FORKHUB_BUILD = previous;
+    }
+  });
+
   it("switches desktop packaging icons to the nightly artwork for nightly versions", () => {
     assert.deepStrictEqual(resolveDesktopBuildIconAssets("0.0.17"), {
       macIconPng: BRAND_ASSET_PATHS.productionMacIconPng,

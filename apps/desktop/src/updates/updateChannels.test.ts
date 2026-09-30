@@ -6,6 +6,7 @@ import {
   isVersionAllowedOnUpdateChannel,
   normalizeForkHubOwner,
   resolveCatalogTrains,
+  resolveForkHubVersionOwner,
   resolveTrainsFromUpstreamManifest,
   resolveDefaultDesktopUpdateChannel,
   resolveForkHubFeedConfig,
@@ -62,6 +63,16 @@ describe("updateChannels", () => {
     expect(isForkHubDerivedVersion("0.0.42-fh.with-fh.2")).toBe(true);
     expect(isForkHubDerivedVersion("0.0.43-nightly.20260924.2187")).toBe(false);
     expect(isForkHubDerivedVersion("0.0.42")).toBe(false);
+  });
+
+  it("resolves the publisher from a ForkHub version's provenance suffix", () => {
+    expect(resolveForkHubVersionOwner("0.0.43-nightly.20260924.2187.fh.with-fh.1")).toBe("with-fh");
+    expect(resolveForkHubVersionOwner("0.0.42-fh.with-fh.2")).toBe("with-fh");
+    expect(resolveForkHubVersionOwner("0.0.43-nightly.20260924.2187")).toBe(null);
+    expect(resolveForkHubVersionOwner("0.0.42")).toBe(null);
+  });
+
+  it("follows the publisher catalog on ForkHub builds", () => {
     // A ForkHub install follows its publisher's catalog on the selected
     // track: nightly- and stable-based builds on either.
     expect(

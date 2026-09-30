@@ -12,7 +12,7 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
-import { isForkHubDerivedVersion } from "../updates/updateChannels.ts";
+import { isForkHubDerivedVersion, resolveForkHubVersionOwner } from "../updates/updateChannels.ts";
 import * as DesktopConfig from "./DesktopConfig.ts";
 import { resolveLinuxDesktopEntryName } from "./DesktopEarlyElectronStartup.ts";
 import { resolveDesktopBaseDir, resolveDesktopStateDir } from "./DesktopStatePaths.ts";
@@ -118,12 +118,15 @@ export function resolveDesktopAppBranding(input: {
 }): DesktopAppBranding {
   const stageLabel = resolveDesktopAppStageLabel(input);
   // The version itself carries ForkHub provenance (`.fh.<owner>.<n>`), so a
-  // ForkHub install brands itself with no build-time flag to lose.
+  // ForkHub install brands itself with no build-time flag to lose. The
+  // display name carries the publisher and train, e.g.
+  // "T3 Code (with-fh, Nightly)".
   if (!input.isDevelopment && isForkHubDerivedVersion(input.appVersion)) {
+    const owner = resolveForkHubVersionOwner(input.appVersion);
     return {
       baseName: APP_BASE_NAME,
       stageLabel,
-      displayName: FORKHUB_APP_DISPLAY_NAME,
+      displayName: owner ? `${APP_BASE_NAME} (${owner}, ${stageLabel})` : FORKHUB_APP_DISPLAY_NAME,
     };
   }
   return {

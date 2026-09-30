@@ -221,8 +221,15 @@ describe("DesktopEnvironment", () => {
       {
         baseName: "T3 Code",
         stageLabel: "Nightly",
-        displayName: "T3 Code x ForkHub",
+        displayName: "T3 Code (imbios, Nightly)",
       },
+    );
+    assert.deepEqual(
+      DesktopEnvironment.resolveDesktopAppBranding({
+        isDevelopment: false,
+        appVersion: "0.0.42-fh.imbios.1",
+      }).displayName,
+      "T3 Code (imbios, Alpha)",
     );
     assert.deepEqual(
       DesktopEnvironment.resolveDesktopAppBranding({
