@@ -38,6 +38,10 @@ import {
   setUpdateChannel,
 } from "./methods/updates.ts";
 import {
+  applyForkHubStateTransfer,
+  previewForkHubStateTransfer,
+} from "./methods/forkHubStateTransfer.ts";
+import {
   getAppBranding,
   getLocalEnvironmentBootstraps,
   getLocalEnvironmentBearerToken,
@@ -139,6 +143,8 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* ipc.handle(getUpdateState);
   yield* ipc.handle(setUpdateChannel);
   yield* ipc.handle(setForkHubOwner);
+  yield* ipc.handle(previewForkHubStateTransfer);
+  yield* ipc.handle(applyForkHubStateTransfer);
   yield* ipc.handle(downloadUpdate);
   yield* ipc.handle(installUpdate);
   yield* ipc.handle(checkForUpdate);

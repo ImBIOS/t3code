@@ -8,6 +8,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   type BackgroundActivityProfile,
   type DesktopUpdateChannel,
+  type ForkHubStateTransferDirection,
+  type ForkHubStateTransferPreview,
+  type ForkHubStateTransferResult,
   ProviderDriverKind,
   type ProviderInstanceId,
   type ScopedThreadRef,
@@ -289,6 +292,11 @@ function AboutVersionSection() {
   const [isUpdateActionPending, setIsUpdateActionPending] = useState(false);
   const [forkhubOwnerInput, setForkhubOwnerInput] = useState<string | null>(null);
   const [forkhubCheck, setForkhubCheck] = useState<ForkHubCheckStatus>({ status: "idle" });
+  const [transferDirection, setTransferDirection] =
+    useState<ForkHubStateTransferDirection | null>(null);
+  const [transferPreview, setTransferPreview] = useState<ForkHubStateTransferPreview | null>(null);
+  const [transferError, setTransferError] = useState<string | null>(null);
+  const [isTransferBusy, setIsTransferBusy] = useState(false);
 
   const hasDesktopBridge = typeof window !== "undefined" && Boolean(window.desktopBridge);
   const selectedUpdateChannel = updateState?.channel ?? "latest";
@@ -367,6 +375,60 @@ function AboutVersionSection() {
       });
     }
   }, [forkhubOwnerValue]);
+
+  const handleTransferPreview = useCallback(async (direction: ForkHubStateTransferDirection) => {
+    const bridge = window.desktopBridge;
+    if (!bridge || typeof bridge.previewForkHubStateTransfer !== "function") return;
+    setTransferDirection(direction);
+    setTransferPreview(null);
+    setTransferError(null);
+    setIsTransferBusy(true);
+    try {
+      setTransferPreview(await bridge.previewForkHubStateTransfer({ direction }));
+    } catch (error) {
+      setTransferError(
+        error instanceof Error ? error.message : "Could not preview the move.",
+      );
+    } finally {
+      setIsTransferBusy(false);
+    }
+  }, []);
+
+  const handleTransferApply = useCallback(async () => {
+    const bridge = window.desktopBridge;
+    if (!bridge || typeof bridge.applyForkHubStateTransfer !== "function" || !transferDirection) {
+      return;
+    }
+    setIsTransferBusy(true);
+    try {
+      const result: ForkHubStateTransferResult = await bridge.applyForkHubStateTransfer({
+        direction: transferDirection,
+      });
+      setTransferPreview(null);
+      setTransferDirection(null);
+      toastManager.add(
+        stackedThreadToast({
+          type: result.errors.length > 0 ? "error" : "success",
+          title:
+            result.errors.length > 0
+              ? "Move finished with problems"
+              : result.applied
+                ? `Move ${transferDirection === "import" ? "from" : "to"} T3 Code complete`
+                : "Already in sync",
+          description: [
+            result.message,
+            result.backups.length > 0 ? `Backups: ${result.backups.join(", ")}.` : null,
+          ]
+            .filter((part) => part !== null)
+            .join(" "),
+        }),
+      );
+    } catch (error) {
+      setTransferError(error instanceof Error ? error.message : "Could not apply the move.");
+    } finally {
+      setIsTransferBusy(false);
+    }
+  }, [transferDirection]);
 
   const handleButtonClick = useCallback(async () => {
     const bridge = window.desktopBridge;
@@ -538,6 +600,7 @@ function AboutVersionSection() {
             }
           />
           {isForkHubBuild ? (
+          <>
           <SettingsRow
             title="ForkHub publisher"
             description={
@@ -604,6 +667,113 @@ function AboutVersionSection() {
               </div>
             }
           />
+          <SettingsRow
+            title="Move from T3 Code"
+            description="Copy prefs and saved environments from your stock install into this one."
+            control={
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={isTransferBusy}
+                onClick={() => void handleTransferPreview("import")}
+              >
+                {isTransferBusy && transferDirection === "import" ? "Working…" : "Import…"}
+              </Button>
+            }
+          />
+          <SettingsRow
+            title="Move to T3 Code"
+            description="Copy prefs and saved environments from this install into stock."
+            control={
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={isTransferBusy}
+                onClick={() => void handleTransferPreview("export")}
+              >
+                {isTransferBusy && transferDirection === "export" ? "Working…" : "Export…"}
+              </Button>
+            }
+          />
+          {transferDirection ? (
+            <div className="rounded-lg border border-border p-4">
+              <p className="text-sm font-medium">
+                {transferDirection === "import" ? "Import from T3 Code" : "Export to T3 Code"}
+              </p>
+              {isTransferBusy && !transferPreview ? (
+                <p className="mt-2 text-xs text-muted-foreground">Reading both installs…</p>
+              ) : transferError ? (
+                <p className="mt-2 text-xs text-destructive" role="alert">
+                  {transferError}
+                </p>
+              ) : transferPreview && !transferPreview.otherHomeFound ? (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  No stock install found at ~/.t3 — nothing to move.
+                </p>
+              ) : transferPreview ? (
+                <>
+                  <ul className="mt-2 space-y-1.5">
+                    {transferPreview.files.map((file) => (
+                      <li key={file.file} className="text-xs text-muted-foreground">
+                        <span className="font-mono">{file.file}</span>
+                        {" — "}
+                        {file.status === "identical"
+                          ? "already in sync."
+                          : file.status === "missing-source"
+                            ? "not on the other install, nothing to move."
+                            : file.status === "unreadable"
+                              ? "could not be read, will be skipped."
+                              : file.status === "new"
+                                ? "will be created."
+                                : "will be updated."}{" "}
+                        {file.addedEnvironmentsTotal > 0 || file.updatedEnvironmentsTotal > 0
+                          ? `${file.addedEnvironmentsTotal} new, ${file.updatedEnvironmentsTotal} updated environments${file.addedEnvironments.length > 0 || file.updatedEnvironments.length > 0 ? ` (${[...file.addedEnvironments, ...file.updatedEnvironments.map((label) => `${label} ~`)].join(", ")}${file.addedEnvironmentsTotal + file.updatedEnvironmentsTotal > file.addedEnvironments.length + file.updatedEnvironments.length ? ", …" : ""})` : ""}. `
+                          : null}
+                        {file.changedKeysTotal > 0
+                          ? `${file.changedKeysTotal} setting${file.changedKeysTotal === 1 ? "" : "s"} changed${file.changedKeys.length > 0 ? ` (${file.changedKeys.join(", ")}${file.changedKeysTotal > file.changedKeys.length ? ", …" : ""})` : ""}. `
+                          : null}
+                        {file.note ? <span>{file.note} </span> : null}
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Update track &amp; publisher stay untouched, existing files are backed up
+                    first, and moved environments reconnect with one click. Quit and reopen
+                    T3 Code afterwards to apply.
+                  </p>
+                  <div className="mt-3 flex gap-2">
+                    <Button
+                      size="sm"
+                      disabled={
+                        isTransferBusy ||
+                        !transferPreview.files.some(
+                          (file) => file.status === "new" || file.status === "updated",
+                        )
+                      }
+                      onClick={() => void handleTransferApply()}
+                    >
+                      {isTransferBusy
+                        ? "Working…"
+                        : `Confirm ${transferDirection === "import" ? "import" : "export"}`}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={isTransferBusy}
+                      onClick={() => {
+                        setTransferDirection(null);
+                        setTransferPreview(null);
+                        setTransferError(null);
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </>
+              ) : null}
+            </div>
+          ) : null}
+          </>
           ) : null}
         </>
       ) : selectedHostedAppChannel ? (

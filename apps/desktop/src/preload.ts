@@ -245,6 +245,10 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     ipcRenderer.invoke(IpcChannels.UPDATE_SET_CHANNEL_CHANNEL, channel),
   setForkHubOwner: (input) =>
     ipcRenderer.invoke(IpcChannels.UPDATE_SET_FORKHUB_OWNER_CHANNEL, input),
+  previewForkHubStateTransfer: (input) =>
+    ipcRenderer.invoke(IpcChannels.FORKHUB_STATE_TRANSFER_PREVIEW_CHANNEL, input),
+  applyForkHubStateTransfer: (input) =>
+    ipcRenderer.invoke(IpcChannels.FORKHUB_STATE_TRANSFER_APPLY_CHANNEL, input),
   checkForUpdate: () => ipcRenderer.invoke(IpcChannels.UPDATE_CHECK_CHANNEL),
   downloadUpdate: () => ipcRenderer.invoke(IpcChannels.UPDATE_DOWNLOAD_CHANNEL),
   installUpdate: () => ipcRenderer.invoke(IpcChannels.UPDATE_INSTALL_CHANNEL),

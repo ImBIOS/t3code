@@ -372,6 +372,50 @@ export const DesktopUpdateCheckResultSchema = Schema.Struct({
   state: DesktopUpdateStateSchema,
 });
 
+export const ForkHubStateTransferDirectionSchema = Schema.Literals(["import", "export"]);
+export type ForkHubStateTransferDirection = typeof ForkHubStateTransferDirectionSchema.Type;
+
+export const ForkHubStateTransferFileStatusSchema = Schema.Literals([
+  "identical",
+  "new",
+  "updated",
+  "unreadable",
+  "missing-source",
+]);
+export type ForkHubStateTransferFileStatus = typeof ForkHubStateTransferFileStatusSchema.Type;
+
+export const ForkHubStateTransferFilePreviewSchema = Schema.Struct({
+  file: Schema.String,
+  status: ForkHubStateTransferFileStatusSchema,
+  addedEnvironments: Schema.Array(Schema.String),
+  addedEnvironmentsTotal: Schema.Number,
+  updatedEnvironments: Schema.Array(Schema.String),
+  updatedEnvironmentsTotal: Schema.Number,
+  changedKeys: Schema.Array(Schema.String),
+  changedKeysTotal: Schema.Number,
+  note: Schema.NullOr(Schema.String),
+});
+export type ForkHubStateTransferFilePreview = typeof ForkHubStateTransferFilePreviewSchema.Type;
+
+export const ForkHubStateTransferPreviewSchema = Schema.Struct({
+  direction: ForkHubStateTransferDirectionSchema,
+  otherHomeFound: Schema.Boolean,
+  files: Schema.Array(ForkHubStateTransferFilePreviewSchema),
+});
+export type ForkHubStateTransferPreview = typeof ForkHubStateTransferPreviewSchema.Type;
+
+export const ForkHubStateTransferResultSchema = Schema.Struct({
+  direction: ForkHubStateTransferDirectionSchema,
+  applied: Schema.Boolean,
+  backups: Schema.Array(Schema.String),
+  addedEnvironmentsTotal: Schema.Number,
+  updatedEnvironmentsTotal: Schema.Number,
+  changedKeysTotal: Schema.Number,
+  errors: Schema.Array(Schema.String),
+  message: Schema.String,
+});
+export type ForkHubStateTransferResult = typeof ForkHubStateTransferResultSchema.Type;
+
 // Stable id for the Windows-native primary backend. Desktop side wraps
 // this with a brand inside DesktopBackendManager; web side keeps it as
 // a plain string so the env-runtime can compare against it without
@@ -1267,6 +1311,12 @@ export interface DesktopBridge {
     readonly hasStableTrain?: boolean;
     readonly hasNightlyTrain?: boolean;
   }) => Promise<DesktopUpdateState>;
+  previewForkHubStateTransfer: (input: {
+    readonly direction: ForkHubStateTransferDirection;
+  }) => Promise<ForkHubStateTransferPreview>;
+  applyForkHubStateTransfer: (input: {
+    readonly direction: ForkHubStateTransferDirection;
+  }) => Promise<ForkHubStateTransferResult>;
   checkForUpdate: () => Promise<DesktopUpdateCheckResult>;
   downloadUpdate: () => Promise<DesktopUpdateActionResult>;
   installUpdate: () => Promise<DesktopUpdateActionResult>;
