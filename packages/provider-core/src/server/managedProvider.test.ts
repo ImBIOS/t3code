@@ -341,6 +341,9 @@ describe("makeManagedServerProvider", () => {
           ),
           refreshInterval: "1 second",
           refreshOnInterval: false,
+          // Opt out of unhealthy fast retries: this test pins the legacy
+          // "no interval activity at all" semantics for refreshOnInterval: false.
+          retryUnhealthyOnInterval: false,
         });
 
         yield* Deferred.await(initialCheckDone);
@@ -470,6 +473,9 @@ describe("makeManagedServerProvider", () => {
           haveSettingsChanged: (previous, next) => previous.enabled !== next.enabled,
           checkProviderOnSettingsChange: () => false,
           refreshOnInterval: false,
+          // Opt out of unhealthy fast retries: this test pins the legacy
+          // "no interval activity at all" semantics for refreshOnInterval: false.
+          retryUnhealthyOnInterval: false,
           initialSnapshot: () => Effect.succeed(initialSnapshot),
           checkProvider: Ref.updateAndGet(checkCalls, (count) => count + 1).pipe(
             Effect.tap(() => Deferred.succeed(initialCheckDone, undefined).pipe(Effect.ignore)),
@@ -788,5 +794,244 @@ describe("makeManagedServerProvider", () => {
         assert.deepStrictEqual((yield* provider.refresh).usageLimits, completeLimits);
       }),
     ).pipe(Effect.provide(layerAlwaysRunTest)),
+  );
+
+  it.effect("retries an unhealthy provider faster than the base interval", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const checkCalls = yield* Ref.make(0);
+        const secondProbeDone = yield* Deferred.make<void>();
+        const stillUnhealthy: ServerProvider = {
+          ...initialSnapshot,
+          checkedAt: "2026-04-10T00:01:00.000Z",
+        };
+        const provider = yield* makeManagedServerProvider<TestSettings>({
+          resolveMaintenance: () => Effect.succeed(maintenanceCapabilities),
+          getSettings: Effect.succeed({ enabled: true }),
+          streamSettings: Stream.empty,
+          haveSettingsChanged: (previous, next) => previous.enabled !== next.enabled,
+          initialSnapshot: () => Effect.succeed(initialSnapshot),
+          checkProvider: Ref.updateAndGet(checkCalls, (count) => count + 1).pipe(
+            Effect.tap((count) =>
+              count === 2
+                ? Deferred.succeed(secondProbeDone, undefined).pipe(Effect.ignore)
+                : Effect.void,
+            ),
+            Effect.as(stillUnhealthy),
+          ),
+          refreshInterval: "5 minutes",
+          unhealthyRefreshInterval: "30 seconds",
+        });
+
+        yield* Stream.take(provider.streamChanges, 1).pipe(Stream.runDrain);
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+        assert.strictEqual(yield* Ref.get(checkCalls), 1);
+
+        yield* TestClock.adjust("30 seconds");
+        yield* Deferred.await(secondProbeDone);
+        assert.strictEqual(yield* Ref.get(checkCalls), 2);
+      }),
+    ).pipe(Effect.provide(Layer.mergeAll(layerAlwaysRunTest, TestClock.layer()))),
+  );
+
+  it.effect("uses the base interval once the provider recovers", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const checkCalls = yield* Ref.make(0);
+        const secondProbeDone = yield* Deferred.make<void>();
+        const provider = yield* makeManagedServerProvider<TestSettings>({
+          resolveMaintenance: () => Effect.succeed(maintenanceCapabilities),
+          getSettings: Effect.succeed({ enabled: true }),
+          streamSettings: Stream.empty,
+          haveSettingsChanged: (previous, next) => previous.enabled !== next.enabled,
+          initialSnapshot: () => Effect.succeed(initialSnapshot),
+          checkProvider: Ref.updateAndGet(checkCalls, (count) => count + 1).pipe(
+            Effect.tap((count) =>
+              count === 2
+                ? Deferred.succeed(secondProbeDone, undefined).pipe(Effect.ignore)
+                : Effect.void,
+            ),
+            Effect.as(refreshedSnapshot),
+          ),
+          refreshInterval: "5 minutes",
+          unhealthyRefreshInterval: "30 seconds",
+        });
+
+        yield* Stream.take(provider.streamChanges, 1).pipe(Stream.runDrain);
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+        assert.strictEqual(yield* Ref.get(checkCalls), 1);
+        assert.deepStrictEqual((yield* provider.getSnapshot).status, "ready");
+
+        yield* TestClock.adjust("30 seconds");
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+        assert.strictEqual(yield* Ref.get(checkCalls), 1);
+
+        yield* TestClock.adjust("4 minutes");
+        yield* TestClock.adjust("31 seconds");
+        yield* Deferred.await(secondProbeDone);
+        assert.strictEqual(yield* Ref.get(checkCalls), 2);
+      }),
+    ).pipe(Effect.provide(Layer.mergeAll(layerAlwaysRunTest, TestClock.layer()))),
+  );
+
+  it.effect("retries an unhealthy provider even when healthy interval refresh is disabled", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const checkCalls = yield* Ref.make(0);
+        const secondProbeDone = yield* Deferred.make<void>();
+        const stillUnhealthy: ServerProvider = {
+          ...initialSnapshot,
+          checkedAt: "2026-04-10T00:01:00.000Z",
+        };
+        const provider = yield* makeManagedServerProvider<TestSettings>({
+          resolveMaintenance: () => Effect.succeed(maintenanceCapabilities),
+          getSettings: Effect.succeed({ enabled: true }),
+          streamSettings: Stream.empty,
+          haveSettingsChanged: (previous, next) => previous.enabled !== next.enabled,
+          initialSnapshot: () => Effect.succeed(initialSnapshot),
+          checkProvider: Ref.updateAndGet(checkCalls, (count) => count + 1).pipe(
+            Effect.tap((count) =>
+              count === 2
+                ? Deferred.succeed(secondProbeDone, undefined).pipe(Effect.ignore)
+                : Effect.void,
+            ),
+            Effect.as(stillUnhealthy),
+          ),
+          refreshInterval: "5 minutes",
+          refreshOnInterval: false,
+          unhealthyRefreshInterval: "30 seconds",
+        });
+
+        yield* Stream.take(provider.streamChanges, 1).pipe(Stream.runDrain);
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+        assert.strictEqual(yield* Ref.get(checkCalls), 1);
+
+        yield* TestClock.adjust("30 seconds");
+        yield* Deferred.await(secondProbeDone);
+        assert.strictEqual(yield* Ref.get(checkCalls), 2);
+      }),
+    ).pipe(Effect.provide(Layer.mergeAll(layerAlwaysRunTest, TestClock.layer()))),
+  );
+
+  it.effect("keeps healthy providers quiet when healthy interval refresh is disabled", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const checkCalls = yield* Ref.make(0);
+        const provider = yield* makeManagedServerProvider<TestSettings>({
+          resolveMaintenance: () => Effect.succeed(maintenanceCapabilities),
+          getSettings: Effect.succeed({ enabled: true }),
+          streamSettings: Stream.empty,
+          haveSettingsChanged: (previous, next) => previous.enabled !== next.enabled,
+          initialSnapshot: () => Effect.succeed(initialSnapshot),
+          checkProvider: Ref.updateAndGet(checkCalls, (count) => count + 1).pipe(
+            Effect.as(refreshedSnapshot),
+          ),
+          refreshInterval: "5 minutes",
+          refreshOnInterval: false,
+          unhealthyRefreshInterval: "30 seconds",
+        });
+
+        yield* Stream.take(provider.streamChanges, 1).pipe(Stream.runDrain);
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+        assert.strictEqual(yield* Ref.get(checkCalls), 1);
+
+        yield* TestClock.adjust("5 minutes");
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+        assert.strictEqual(yield* Ref.get(checkCalls), 1);
+      }),
+    ).pipe(Effect.provide(Layer.mergeAll(layerAlwaysRunTest, TestClock.layer()))),
+  );
+
+  it.effect("falls back to the base interval after the fast-retry cap", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const checkCalls = yield* Ref.make(0);
+        const secondProbeDone = yield* Deferred.make<void>();
+        const thirdProbeDone = yield* Deferred.make<void>();
+        const stillUnhealthy: ServerProvider = {
+          ...initialSnapshot,
+          checkedAt: "2026-04-10T00:01:00.000Z",
+        };
+        const provider = yield* makeManagedServerProvider<TestSettings>({
+          resolveMaintenance: () => Effect.succeed(maintenanceCapabilities),
+          getSettings: Effect.succeed({ enabled: true }),
+          streamSettings: Stream.empty,
+          haveSettingsChanged: (previous, next) => previous.enabled !== next.enabled,
+          initialSnapshot: () => Effect.succeed(initialSnapshot),
+          checkProvider: Ref.updateAndGet(checkCalls, (count) => count + 1).pipe(
+            Effect.tap((count) =>
+              count === 2
+                ? Deferred.succeed(secondProbeDone, undefined)
+                : count === 3
+                  ? Deferred.succeed(thirdProbeDone, undefined)
+                  : Effect.void,
+            ),
+            Effect.as(stillUnhealthy),
+          ),
+          refreshInterval: "5 minutes",
+          unhealthyRefreshInterval: "30 seconds",
+          maxUnhealthyFastRetries: 2,
+        });
+
+        yield* Stream.take(provider.streamChanges, 1).pipe(Stream.runDrain);
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+        assert.strictEqual(yield* Ref.get(checkCalls), 1);
+
+        yield* TestClock.adjust("30 seconds");
+        yield* Deferred.await(secondProbeDone);
+        assert.strictEqual(yield* Ref.get(checkCalls), 2);
+
+        yield* TestClock.adjust("4 minutes");
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+        assert.strictEqual(yield* Ref.get(checkCalls), 2);
+
+        yield* TestClock.adjust("61 seconds");
+        yield* Deferred.await(thirdProbeDone);
+        assert.strictEqual(yield* Ref.get(checkCalls), 3);
+      }),
+    ).pipe(Effect.provide(Layer.mergeAll(layerAlwaysRunTest, TestClock.layer()))),
+  );
+
+  it.effect("never fast-retries a disabled provider", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const checkCalls = yield* Ref.make(0);
+        const disabledSnapshot: ServerProvider = {
+          ...initialSnapshot,
+          enabled: false,
+          status: "disabled",
+        };
+        const provider = yield* makeManagedServerProvider<TestSettings>({
+          resolveMaintenance: () => Effect.succeed(maintenanceCapabilities),
+          getSettings: Effect.succeed({ enabled: false }),
+          streamSettings: Stream.empty,
+          haveSettingsChanged: (previous, next) => previous.enabled !== next.enabled,
+          initialSnapshot: () => Effect.succeed(disabledSnapshot),
+          checkProvider: Ref.updateAndGet(checkCalls, (count) => count + 1).pipe(
+            Effect.as(disabledSnapshot),
+          ),
+          refreshInterval: "5 minutes",
+          unhealthyRefreshInterval: "30 seconds",
+        });
+
+        yield* Stream.take(provider.streamChanges, 1).pipe(Stream.runDrain);
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+        assert.strictEqual(yield* Ref.get(checkCalls), 1);
+
+        yield* TestClock.adjust("30 seconds");
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+        assert.strictEqual(yield* Ref.get(checkCalls), 1);
+      }),
+    ).pipe(Effect.provide(Layer.mergeAll(layerAlwaysRunTest, TestClock.layer()))),
   );
 });

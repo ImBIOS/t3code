@@ -24,6 +24,12 @@ interface ProviderSnapshotState {
   readonly enrichmentGeneration: number;
 }
 
+export const DEFAULT_UNHEALTHY_PROVIDER_REFRESH_INTERVAL = Duration.seconds(30);
+export const DEFAULT_MAX_UNHEALTHY_PROVIDER_FAST_RETRIES = 10;
+
+const isUnhealthyProviderSnapshot = (snapshot: ServerProvider): boolean =>
+  snapshot.enabled && (snapshot.status === "warning" || snapshot.status === "error");
+
 function withUsageLimits(
   snapshot: ServerProvider,
   usageLimits: ServerProvider["usageLimits"],
@@ -52,6 +58,9 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
   }) => Effect.Effect<void>;
   readonly refreshInterval?: Duration.Input;
   readonly refreshOnInterval?: boolean;
+  readonly retryUnhealthyOnInterval?: boolean;
+  readonly unhealthyRefreshInterval?: Duration.Input;
+  readonly maxUnhealthyFastRetries?: number;
   readonly checkProviderOnSettingsChange?: (previous: Settings, next: Settings) => boolean;
 }): Effect.fn.Return<
   ManagedServerProvider,
@@ -72,6 +81,8 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
   });
   const settingsRef = yield* Ref.make(initialSettings);
   const enrichmentFiberRef = yield* Ref.make<Fiber.Fiber<void, unknown> | null>(null);
+  const unhealthyFastRetryCountRef = yield* Ref.make(0);
+  const refreshIntervalChanges = yield* Queue.sliding<void>(1);
   const scope = yield* Effect.scope;
 
   const publishEnrichedSnapshot = Effect.fn("publishEnrichedSnapshot")(function* (
@@ -186,6 +197,15 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
     );
     yield* Ref.set(settingsRef, nextSettings);
     yield* PubSub.publish(changesPubSub, nextSnapshot);
+    if (isUnhealthyProviderSnapshot(nextSnapshot)) {
+      yield* Ref.update(unhealthyFastRetryCountRef, (count) => count + 1);
+    } else {
+      yield* Ref.set(unhealthyFastRetryCountRef, 0);
+    }
+    // Wake the interval loop so its next sleep matches the just-published
+    // health: an unhealthy probe shortens the wait, a recovery lengthens it.
+    // Waking never probes directly; the loop recomputes and sleeps again.
+    yield* Queue.offer(refreshIntervalChanges, undefined).pipe(Effect.asVoid);
     yield* restartSnapshotEnrichment(nextSettings, nextSnapshot, nextGeneration);
     return nextSnapshot;
   });
@@ -237,7 +257,35 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
           Effect.orElseSucceed(() => DEFAULT_PROVIDER_HEALTH_REFRESH_INTERVAL),
         );
 
-  const refreshIntervalChanges = yield* Queue.sliding<void>(1);
+  const shouldFastRetryUnhealthy = Effect.gen(function* () {
+    if (input.retryUnhealthyOnInterval === false) {
+      return false;
+    }
+    const state = yield* Ref.get(snapshotStateRef);
+    if (!isUnhealthyProviderSnapshot(state.snapshot)) {
+      return false;
+    }
+    const fastRetriesUsed = yield* Ref.get(unhealthyFastRetryCountRef);
+    return (
+      fastRetriesUsed <
+      (input.maxUnhealthyFastRetries ?? DEFAULT_MAX_UNHEALTHY_PROVIDER_FAST_RETRIES)
+    );
+  });
+
+  const getEffectiveRefreshInterval = Effect.gen(function* () {
+    const baseInterval = yield* getRefreshInterval;
+    if (!(yield* shouldFastRetryUnhealthy)) {
+      return baseInterval;
+    }
+    const baseMillis = Duration.toMillis(Duration.fromInputUnsafe(baseInterval));
+    if (baseMillis <= 0) {
+      return baseInterval;
+    }
+    const fastInterval = Duration.fromInputUnsafe(
+      input.unhealthyRefreshInterval ?? DEFAULT_UNHEALTHY_PROVIDER_REFRESH_INTERVAL,
+    );
+    return Duration.toMillis(fastInterval) < baseMillis ? fastInterval : baseInterval;
+  });
   if (input.refreshInterval === undefined) {
     const serverSettingsChanges = yield* host.settings.subscribe;
     yield* serverSettingsChanges.pipe(
@@ -257,7 +305,7 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
   ).pipe(Effect.forkScoped);
 
   yield* Effect.forever(
-    getRefreshInterval.pipe(
+    getEffectiveRefreshInterval.pipe(
       Effect.flatMap((refreshInterval) =>
         // @effect-diagnostics-next-line raceFirstWithSleepToTimeout:off - races the interval against a settings-change signal, not a timeout
         Effect.raceFirst(
@@ -269,14 +317,16 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
           Queue.take(refreshIntervalChanges).pipe(Effect.as(false)),
         ).pipe(
           Effect.flatMap((intervalElapsed) =>
-            input.refreshOnInterval !== false &&
-            intervalElapsed &&
-            Duration.toMillis(Duration.fromInputUnsafe(refreshInterval)) > 0
-              ? hasProviderStatusDemand.pipe(
-                  Effect.flatMap((shouldRefresh) =>
-                    shouldRefresh ? refreshSnapshot().pipe(Effect.asVoid) : Effect.void,
-                  ),
-                )
+            intervalElapsed && Duration.toMillis(Duration.fromInputUnsafe(refreshInterval)) > 0
+              ? Effect.gen(function* () {
+                  if (input.refreshOnInterval === false && !(yield* shouldFastRetryUnhealthy)) {
+                    return;
+                  }
+                  const shouldRefresh = yield* hasProviderStatusDemand;
+                  if (shouldRefresh) {
+                    yield* refreshSnapshot().pipe(Effect.asVoid);
+                  }
+                })
               : Effect.void,
           ),
         ),
