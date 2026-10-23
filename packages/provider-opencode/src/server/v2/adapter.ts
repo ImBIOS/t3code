@@ -3715,8 +3715,12 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
                     // evidence keeps the original error.
                     const oversized = oversizedSessionMessage({
                       causeTag: cause._tag,
-                      steps: turn.steps,
-                      inputTokens: turn.usage.input,
+                      lastStepInputTokens:
+                        turn.lastStep === undefined
+                          ? undefined
+                          : turn.lastStep.input +
+                            turn.lastStep.cache.read +
+                            turn.lastStep.cache.write,
                       windowTokens: windowOf(
                         directoryOf(turnInput.runtimePolicy.cwd),
                         turnInput.modelSelection.model,

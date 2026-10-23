@@ -7,8 +7,7 @@ describe("oversizedSessionMessage", () => {
     expect(
       oversizedSessionMessage({
         causeTag: "InvalidRequestError",
-        steps: 12,
-        inputTokens: 8_700_000,
+        lastStepInputTokens: 8_700_000,
         windowTokens: 1_000_000,
       }),
     ).toBe(
@@ -23,19 +22,27 @@ describe("oversizedSessionMessage", () => {
     expect(
       oversizedSessionMessage({
         causeTag: "InvalidRequestError",
-        steps: 1,
-        inputTokens: 200_000,
+        lastStepInputTokens: 200_000,
         windowTokens: 200_000,
       }),
     ).not.toBeNull();
+  });
+
+  it("ignores cumulative totals when the last step fits the window", () => {
+    expect(
+      oversizedSessionMessage({
+        causeTag: "InvalidRequestError",
+        lastStepInputTokens: 80_000,
+        windowTokens: 200_000,
+      }),
+    ).toBeNull();
   });
 
   it("leaves other rejections alone", () => {
     expect(
       oversizedSessionMessage({
         causeTag: "ConflictError",
-        steps: 12,
-        inputTokens: 8_700_000,
+        lastStepInputTokens: 8_700_000,
         windowTokens: 1_000_000,
       }),
     ).toBeNull();
@@ -45,8 +52,7 @@ describe("oversizedSessionMessage", () => {
     expect(
       oversizedSessionMessage({
         causeTag: "InvalidRequestError",
-        steps: 12,
-        inputTokens: 50_000,
+        lastStepInputTokens: 50_000,
         windowTokens: 1_000_000,
       }),
     ).toBeNull();
@@ -56,16 +62,14 @@ describe("oversizedSessionMessage", () => {
     expect(
       oversizedSessionMessage({
         causeTag: "InvalidRequestError",
-        steps: 12,
-        inputTokens: 8_700_000,
+        lastStepInputTokens: 8_700_000,
         windowTokens: undefined,
       }),
     ).toBeNull();
     expect(
       oversizedSessionMessage({
         causeTag: "InvalidRequestError",
-        steps: 0,
-        inputTokens: 0,
+        lastStepInputTokens: undefined,
         windowTokens: 1_000_000,
       }),
     ).toBeNull();
