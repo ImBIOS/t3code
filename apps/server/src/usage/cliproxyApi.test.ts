@@ -51,11 +51,20 @@ function fixture(
     accounts?: Array<
       (typeof accounts)[number] & {
         disabled?: boolean;
+        provider?: string;
+        label?: string;
         id_token: { chatgpt_account_id: string; plan_type?: string; chatgpt_plan_type?: string };
       }
     >;
     upstream?: (request: RequestBody) => { status: number; body: unknown };
     cooldownStatus?: number;
+    quotaProvidersStatus?: number;
+    quotaProviders?: Array<{
+      provider: string;
+      display_name?: string;
+      supported_providers?: Array<string>;
+    }>;
+    quotaFetch?: (auth_index: string) => { status: number; body: unknown };
   } = {},
 ) {
   const requests: Array<{ path: string; body?: RequestBody }> = [];
@@ -78,6 +87,46 @@ function fixture(
           request,
           Response.json({}, { status: options.cooldownStatus ?? 200 }),
         );
+      if (path.endsWith("/quota/providers")) {
+        const status = options.quotaProvidersStatus ?? 200;
+        if (status < 200 || status >= 300)
+          return HttpClientResponse.fromWeb(request, Response.json({}, { status }));
+        return HttpClientResponse.fromWeb(
+          request,
+          Response.json({
+            providers: options.quotaProviders ?? [
+              {
+                plugin_id: "opencode-go-cliproxyapi",
+                provider: "opencode-go",
+                display_name: "OpenCode Go",
+                supported_providers: ["opencode-go"],
+              },
+            ],
+          }),
+        );
+      }
+      if (path.endsWith("/quota/fetch")) {
+        const fetch = options.quotaFetch?.(body?.auth_index ?? "") ?? {
+          status: 200,
+          body: {
+            subscription: { plan: "Go" },
+            groups: [
+              {
+                displayName: "OpenCode Go",
+                buckets: [
+                  { window: "rolling", remainingFraction: 0.5, resetTime: "2099-01-01T00:00:00Z" },
+                  { window: "weekly", remainingFraction: 0.25, resetTime: "2099-01-08T00:00:00Z" },
+                  { window: "monthly", remainingFraction: 0.75 },
+                  { window: "unknown-future", remainingFraction: 0.1 },
+                ],
+              },
+            ],
+          },
+        };
+        if (fetch.status < 200 || fetch.status >= 300)
+          return HttpClientResponse.fromWeb(request, Response.json({}, { status: fetch.status }));
+        return HttpClientResponse.fromWeb(request, Response.json(fetch.body));
+      }
       expect(path).toMatch(/\/v0\/management\/api-call$/);
       expect(body?.header?.Authorization).toBe("Bearer $TOKEN$");
       const upstream = options.upstream?.(body!) ?? {
@@ -387,7 +436,12 @@ describe("CLIProxyAPI built-in management API", () => {
       expect((yield* api.consume(config, "first.json", "credit").pipe(Effect.result))._tag).toBe(
         "Failure",
       );
-      expect(test.requests.every((request) => request.path.endsWith("/auth-files"))).toBe(true);
+      expect(
+        test.requests.every(
+          (request) =>
+            request.path.endsWith("/auth-files") || request.path.endsWith("/quota/providers"),
+        ),
+      ).toBe(true);
     }),
   );
 
@@ -424,6 +478,89 @@ describe("CLIProxyAPI built-in management API", () => {
       const result = yield* api.consume(config, "missing.json", "credit").pipe(Effect.result);
       expect(result._tag).toBe("Failure");
       expect(test.requests).toHaveLength(1);
+    }),
+  );
+});
+
+describe("CLIProxyAPI plugin quota providers", () => {
+  const pluginAccounts = [
+    { ...accounts[0]!, id: "personal.json", auth_index: "p", provider: "opencode-go", label: "Personal" },
+    { ...accounts[1]!, id: "work.json", auth_index: "w", provider: "opencode-go", label: "Work" },
+  ];
+
+  it.effect("reads plugin accounts through the hub quota API", () =>
+    Effect.gen(function* () {
+      const test = fixture({ accounts: pluginAccounts });
+      const api = yield* test.api;
+      const result = yield* api.readAccounts(config);
+      expect(result.map((account) => [account.id, account.plan])).toEqual([
+        ["personal.json", "Personal · OpenCode Go"],
+        ["work.json", "Work · OpenCode Go"],
+      ]);
+      expect(result[0]?.driver).toBe("opencode");
+      expect(result[0]?.usageLimits.windows).toEqual([
+        {
+          id: "rolling",
+          kind: "session",
+          label: "Rolling",
+          usedPercent: 50,
+          resetsAt: "2099-01-01T00:00:00Z",
+        },
+        {
+          id: "weekly",
+          kind: "weekly",
+          label: "Weekly",
+          usedPercent: 75,
+          resetsAt: "2099-01-08T00:00:00Z",
+        },
+        { id: "monthly", kind: "monthly", label: "Monthly", usedPercent: 25 },
+      ]);
+      expect(result[0]?.usageLimits.credentialFingerprint).toMatch(/^[0-9a-f]{64}$/);
+      const fetches = test.requests.filter((request) => request.path.endsWith("/quota/fetch"));
+      expect(fetches.map((request) => request.body?.auth_index).sort()).toEqual(["p", "w"]);
+    }),
+  );
+
+  it.effect("keeps codex and claude when the quota discovery endpoint is missing", () =>
+    Effect.gen(function* () {
+      const test = fixture({
+        accounts: [{ ...accounts[0]! }, { ...pluginAccounts[0]! }],
+        quotaProvidersStatus: 404,
+      });
+      const api = yield* test.api;
+      const result = yield* api.readAccounts(config);
+      expect(result.map((account) => account.id)).toEqual(["first.json"]);
+    }),
+  );
+
+  it.effect("isolates a failed plugin quota fetch without leaking bodies", () =>
+    Effect.gen(function* () {
+      const test = fixture({
+        accounts: [{ ...accounts[0]! }, { ...pluginAccounts[0]! }],
+        quotaFetch: (auth_index) =>
+          auth_index === "p"
+            ? { status: 500, body: { secret: "do-not-publish" } }
+            : {
+                status: 200,
+                body: {
+                  subscription: { plan: "Go" },
+                  groups: [
+                    {
+                      buckets: [
+                        { window: "weekly", remainingFraction: 0.5 },
+                      ],
+                    },
+                  ],
+                },
+              },
+      });
+      const api = yield* test.api;
+      const result = yield* api.readAccounts(config);
+      expect(result.map((account) => account.id)).toEqual(["first.json", "personal.json"]);
+      expect(result[1]?.usageLimits.unavailable?.reason).toBe("probeFailed");
+      expect(result[1]?.plan).toBe("Personal · OpenCode Go");
+      expect(result[0]?.usageLimits.windows[0]?.usedPercent).toBe(78);
+      expect(encodeJson(result)).not.toContain("do-not-publish");
     }),
   );
 });
