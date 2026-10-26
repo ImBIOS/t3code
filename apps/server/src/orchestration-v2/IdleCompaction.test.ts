@@ -5,14 +5,21 @@ import {
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
+  ProviderSessionId,
   ProviderThreadId,
   ProviderTurnId,
   RunId,
+  RuntimeRequestId,
   ThreadId,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 
-import { idleCompactionWindow, type IdleCompactionRecords } from "./IdleCompaction.ts";
+import {
+  idleCompactionWindow,
+  openCodeAutoCompactThreshold,
+  thresholdCompactionDue,
+  type IdleCompactionRecords,
+} from "./IdleCompaction.ts";
 
 const NOW_MS = Date.parse("2026-10-19T12:00:00.000Z");
 const MINUTE_MS = 60_000;
@@ -152,5 +159,140 @@ describe("idleCompactionWindow", () => {
     const archived = records(cache);
     archived.thread = { ...archived.thread, archivedAt: at() };
     expect(idleCompactionWindow(archived, NOW_MS)).toBeNull();
+  });
+});
+
+const openCodeInstanceId = ProviderInstanceId.make("opencode");
+
+function openCodeRecords(
+  usage: { readonly usedTokens?: number; readonly autoCompactThreshold?: number } = {},
+): { -readonly [Key in keyof IdleCompactionRecords]: IdleCompactionRecords[Key] } {
+  const base = records(usage.usedTokens === undefined ? {} : { usedTokens: usage.usedTokens });
+  return {
+    ...base,
+    thread: {
+      ...base.thread,
+      providerInstanceId: openCodeInstanceId,
+      modelSelection: { instanceId: openCodeInstanceId, model: "opencode/big-pickle" },
+    },
+    runs: [
+      {
+        ...base.runs[0]!,
+        providerInstanceId: openCodeInstanceId,
+        modelSelection: { instanceId: openCodeInstanceId, model: "opencode/big-pickle" },
+      },
+    ],
+    providerThreads: [
+      {
+        ...base.providerThreads[0]!,
+        driver: ProviderDriverKind.make("opencode"),
+        providerInstanceId: openCodeInstanceId,
+      },
+    ],
+    providerTurns: [
+      {
+        ...base.providerTurns[0]!,
+        tokenUsage: {
+          usedTokens: usage.usedTokens ?? 250_000,
+          maxTokens: 1_000_000,
+          ...(usage.autoCompactThreshold === undefined
+            ? {}
+            : { autoCompactThreshold: usage.autoCompactThreshold }),
+          updatedAt: DateTime.formatIso(at()),
+        },
+      },
+    ],
+  };
+}
+
+describe("thresholdCompactionDue", () => {
+  it("fires at and above the threshold, and skips below it", () => {
+    expect(thresholdCompactionDue(openCodeRecords({ usedTokens: 199_999 }), 200_000)).toBeNull();
+    expect(thresholdCompactionDue(openCodeRecords({ usedTokens: 200_000 }), 200_000)).toEqual({
+      runId,
+    });
+    expect(thresholdCompactionDue(openCodeRecords({ usedTokens: 400_000 }), 200_000)).toEqual({
+      runId,
+    });
+  });
+
+  it("prefers the threshold the provider reported over the configured one", () => {
+    // A tighter provider-reported threshold fires even when the configured one is higher.
+    expect(
+      thresholdCompactionDue(
+        openCodeRecords({ usedTokens: 150_000, autoCompactThreshold: 100_000 }),
+        200_000,
+      ),
+    ).toEqual({ runId });
+    // A looser provider-reported threshold holds back a crossed configured one.
+    expect(
+      thresholdCompactionDue(
+        openCodeRecords({ usedTokens: 150_000, autoCompactThreshold: 300_000 }),
+        100_000,
+      ),
+    ).toBeNull();
+  });
+
+  it("skips unset thresholds, other drivers, and compactions", () => {
+    expect(thresholdCompactionDue(openCodeRecords(), 0)).toBeNull();
+    expect(thresholdCompactionDue(openCodeRecords(), Number.NaN)).toBeNull();
+    const claude = records({ usedTokens: 400_000 });
+    expect(thresholdCompactionDue(claude, 200_000)).toBeNull();
+    const compacted = openCodeRecords({ usedTokens: 400_000 });
+    compacted.messages = [{ ...compacted.messages[0]!, text: "/compact" }];
+    expect(thresholdCompactionDue(compacted, 200_000)).toBeNull();
+    const running = openCodeRecords({ usedTokens: 400_000 });
+    running.runs = [{ ...running.runs[0]!, status: "running", completedAt: null }];
+    expect(thresholdCompactionDue(running, 200_000)).toBeNull();
+    const pending = openCodeRecords({ usedTokens: 400_000 });
+    pending.runtimeRequests = [
+      {
+        id: RuntimeRequestId.make("request-1"),
+        nodeId: NodeId.make("root-node"),
+        providerTurnId: null,
+        nativeRequestRef: null,
+        kind: "permission",
+        status: "pending",
+        responseCapability: {
+          type: "live",
+          providerSessionId: ProviderSessionId.make("provider-session-1"),
+        },
+        createdAt: at(),
+        resolvedAt: null,
+      },
+    ];
+    expect(thresholdCompactionDue(pending, 200_000)).toBeNull();
+  });
+});
+
+describe("openCodeAutoCompactThreshold", () => {
+  const settingsFor = (config: unknown) => ({
+    providerInstances: {
+      [openCodeInstanceId]: { driver: ProviderDriverKind.make("opencode"), config },
+    },
+  });
+  it("reads the instance threshold and rejects empty or invalid values", () => {
+    expect(
+      openCodeAutoCompactThreshold(
+        settingsFor({ autoCompactThreshold: "200000" }),
+        openCodeInstanceId,
+      ),
+    ).toBe(200_000);
+    expect(openCodeAutoCompactThreshold(settingsFor({}), openCodeInstanceId)).toBeNull();
+    expect(
+      openCodeAutoCompactThreshold(settingsFor({ autoCompactThreshold: "" }), openCodeInstanceId),
+    ).toBeNull();
+    expect(
+      openCodeAutoCompactThreshold(
+        settingsFor({ autoCompactThreshold: "lots" }),
+        openCodeInstanceId,
+      ),
+    ).toBeNull();
+    expect(
+      openCodeAutoCompactThreshold(
+        settingsFor({ autoCompactThreshold: "200000" }),
+        ProviderInstanceId.make("codex"),
+      ),
+    ).toBeNull();
   });
 });

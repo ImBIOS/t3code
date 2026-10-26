@@ -15,7 +15,11 @@ import * as Stream from "effect/Stream";
 
 import { forkParked } from "../serverActivation.ts";
 import * as ServerSettings from "../serverSettings.ts";
-import { idleCompactionWindow } from "./IdleCompaction.ts";
+import {
+  idleCompactionWindow,
+  openCodeAutoCompactThreshold,
+  thresholdCompactionDue,
+} from "./IdleCompaction.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 
@@ -49,13 +53,34 @@ export const make = Effect.gen(function* () {
           { messageRunIds: [runId], turnItemStatuses: ["pending", "running", "waiting"] },
         );
         if (
-          resolveIdleCompaction(current, records.thread.providerInstanceId) !==
-            "beforeCacheExpires" ||
           !resolveProjectProviderInstanceEnabled(
             current,
             records.thread.projectId,
             records.thread.providerInstanceId,
           )
+        )
+          return;
+        // Usage-fraction trigger for OpenCode threads: no cache timing, so a
+        // crossed threshold compacts on the completed run without waiting.
+        const threshold = openCodeAutoCompactThreshold(current, records.thread.providerInstanceId);
+        if (threshold !== null && thresholdCompactionDue(records, threshold)?.runId === runId) {
+          yield* orchestrator.dispatch({
+            type: "message.dispatch",
+            // One compaction per completed run, even across duplicate events.
+            commandId: CommandId.make(`server:threshold-compact:${threadId}:${runId}`),
+            messageId: MessageId.make(`threshold-compact:${threadId}:${runId}`),
+            threadId,
+            text: IDLE_COMPACTION_TEXT,
+            attachments: [],
+            createdBy: "agent",
+            creationSource: "server",
+            idleCompaction: "threshold",
+            dispatchMode: { type: "start_immediately" },
+          });
+          return;
+        }
+        if (
+          resolveIdleCompaction(current, records.thread.providerInstanceId) !== "beforeCacheExpires"
         )
           return;
         const nowMs = DateTime.toEpochMillis(yield* DateTime.now);

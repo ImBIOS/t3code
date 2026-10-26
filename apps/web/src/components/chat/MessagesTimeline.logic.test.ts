@@ -541,7 +541,9 @@ describe("deriveMessagesTimelineRows", () => {
     const [history0, history1, history2, liveUser, , liveAssistant] = fixture.visibleTurnItems;
     if (liveUser?.item.type !== "user_message" || liveAssistant?.item.type !== "assistant_message")
       throw new Error("Expected live fixture items");
-    const compactPrompt = (idleCompaction: "beforeCacheExpires" | "onReturn" | undefined) => ({
+    const compactPrompt = (
+      idleCompaction: "beforeCacheExpires" | "onReturn" | "threshold" | undefined,
+    ) => ({
       ...liveUser,
       item: { ...liveUser.item, text: "/compact", idleCompaction },
     });
@@ -589,6 +591,15 @@ describe("deriveMessagesTimelineRows", () => {
         "onReturn",
         { kind: "working", compacting: "Compacting after being idle…" },
         "Context compacted after being idle",
+      ],
+      [
+        "threshold",
+        {
+          kind: "context-compaction",
+          active: true,
+          label: "Compacting past the threshold…",
+        },
+        "Context automatically compacted past the threshold",
       ],
       [undefined, { kind: "context-compaction", active: true }, undefined],
     ] as const) {

@@ -646,7 +646,19 @@ const turnTokenUsage = (turn: ActiveTurn, status: OrchestrationV2ProviderTurn["s
         hasSubagents: turn.usedSubagents,
       };
 
-export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: ProviderInstanceId) {
+// The configured threshold applies to the turn too, so the context meter and
+// handoff budget read the same value before the thread snapshot lands.
+const openCodeAutoCompactThreshold = (autoCompactThreshold: string, maxTokens: number | null) => {
+  const threshold = Number(autoCompactThreshold);
+  return threshold > 0 && (maxTokens === null || threshold < maxTokens)
+    ? { autoCompactThreshold: threshold }
+    : {};
+};
+
+export const make = Effect.fn("OpenCode2Adapter.make")(function* (
+  instanceId: ProviderInstanceId,
+  options?: { readonly autoCompactThreshold?: string | undefined },
+) {
   const server = yield* OpenCode2Server.OpenCode2Server;
   const idAllocator = yield* IdAllocator.IdAllocatorV2;
   const host = yield* ProviderHost.ProviderHost;
@@ -655,6 +667,7 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
   const continuationRequests = yield* ProviderContinuationRequests.ProviderContinuationRequests;
   const crypto = yield* Crypto.Crypto;
   const driver = OPENCODE_PROVIDER;
+  const autoCompactThreshold = options?.autoCompactThreshold ?? "";
   const mcpServerNameFor = (threadId: string) =>
     t3McpServerName(threadId).pipe(Effect.provideService(Crypto.Crypto, crypto));
 
@@ -1590,6 +1603,7 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
                 cachedInputTokens: lastStep.cache.read,
                 outputTokens: lastStep.output,
                 reasoningOutputTokens: lastStep.reasoning,
+                ...openCodeAutoCompactThreshold(autoCompactThreshold, window ?? null),
                 updatedAt: DateTime.formatIso(completedAt),
               },
             }),

@@ -241,13 +241,17 @@ const makeReplayAdapter = (
     readonly onPrompt?: (input: unknown) => void;
     readonly replayGate?: ProviderReplayGate;
     readonly borrowers?: { current: number };
+    readonly autoCompactThreshold?: string;
   },
 ) =>
   Effect.gen(function* () {
     const server = yield* replayServer(transcript, options);
-    return yield* OpenCode2Adapter.make(ProviderInstanceId.make("opencode")).pipe(
-      Effect.provideService(OpenCode2Server.OpenCode2Server, server),
-    );
+    return yield* OpenCode2Adapter.make(
+      ProviderInstanceId.make("opencode"),
+      options?.autoCompactThreshold === undefined
+        ? undefined
+        : { autoCompactThreshold: options.autoCompactThreshold },
+    ).pipe(Effect.provideService(OpenCode2Server.OpenCode2Server, server));
   });
 
 const layerReplayHost = TestProviderHost.layer().pipe(Layer.provide(NodeServices.layer));
@@ -291,6 +295,7 @@ export const openCode2ReplayRuntime = (
     readonly attachmentsDir?: string;
     readonly resolveExtractedTextPath?: (path: string) => Effect.Effect<string | undefined>;
     readonly fileSystem?: FileSystem.FileSystem;
+    readonly autoCompactThreshold?: string;
   },
 ) =>
   Effect.gen(function* () {

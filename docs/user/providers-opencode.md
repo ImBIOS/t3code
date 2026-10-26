@@ -22,6 +22,18 @@ started on 1.x continue on 2.x.
 
 Plan mode uses OpenCode's `plan` agent.
 
+## Compact long conversations
+
+Set **Auto-compact after** in the OpenCode provider settings to an integer
+between `1000` and `10000000`. For example, `200000` compacts the thread once
+its context reaches about 200,000 tokens. Leave it empty to compact only when
+the model's context window is nearly full. The compaction appears in the thread
+as a `/compact` turn sent by T3 Code. Automatic threshold compaction needs
+OpenCode 2, which reports context usage; on 1.x only manual compaction applies.
+
+You can also send `/compact` in an existing conversation. Web and desktop offer
+**Compact context** from the context meter.
+
 ## Local or external server
 
 Leave **Server URL** empty to let T3 Code start OpenCode locally. A password in

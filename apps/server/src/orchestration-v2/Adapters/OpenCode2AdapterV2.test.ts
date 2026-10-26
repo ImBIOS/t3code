@@ -314,6 +314,7 @@ const resumed = (
     readonly resolveExtractedTextPath?: (path: string) => Effect.Effect<string | undefined>;
     readonly fileSystem?: FileSystem.FileSystem;
     readonly onPrompt?: (input: unknown) => void;
+    readonly autoCompactThreshold?: string;
   },
 ) =>
   Effect.gen(function* () {
@@ -344,6 +345,9 @@ const resumed = (
         ...(options?.resolveExtractedTextPath === undefined
           ? {}
           : { resolveExtractedTextPath: options.resolveExtractedTextPath }),
+        ...(options?.autoCompactThreshold === undefined
+          ? {}
+          : { autoCompactThreshold: options.autoCompactThreshold }),
       },
     );
     const thread = yield* runtime.resumeThread({
@@ -3186,6 +3190,47 @@ it.layer(McpProviderSessions.layer)("OpenCode2 adapter", (it) => {
         48000,
       );
     }).pipe(Effect.scoped),
+  );
+
+  it.effect.each([
+    { threshold: "150000", expected: 150_000 },
+    // At or above the model window the threshold never applies, like Claude's.
+    { threshold: "160000", expected: undefined },
+    { threshold: "200000", expected: undefined },
+  ])(
+    "reports the configured auto-compact threshold $threshold as $expected",
+    ({ threshold, expected }) =>
+      Effect.gen(function* () {
+        const { runtime, thread } = yield* resumed(
+          [
+            out("session.prompt", { sessionID: SESSION, text: "<any>" }),
+            promptAccepted,
+            event("session.step.ended", {
+              sessionID: SESSION,
+              assistantMessageID: "msg_0eb735d5b001oAFVeY5jz3WD4Z",
+              finish: "stop",
+              cost: 0,
+              tokens: { input: 1200, output: 40, reasoning: 0, cache: { read: 0, write: 0 } },
+            }),
+            event("session.execution.succeeded", { sessionID: SESSION }),
+          ],
+          { autoCompactThreshold: threshold },
+        );
+        const settled = yield* runtime.events.pipe(
+          Stream.filter(
+            (event) =>
+              event.type === "provider_turn.updated" && event.providerTurn.completedAt !== null,
+          ),
+          Stream.runHead,
+          Effect.forkScoped,
+        );
+        yield* runtime.startTurn(turnInput(thread));
+        const turn = Option.getOrUndefined(yield* Fiber.join(settled));
+        const tokenUsage =
+          turn?.type === "provider_turn.updated" ? turn.providerTurn.tokenUsage : undefined;
+        assert.equal(tokenUsage?.maxTokens, 160000);
+        assert.equal(tokenUsage?.autoCompactThreshold, expected);
+      }).pipe(Effect.scoped),
   );
 
   it.effect("clears a staged revert whose commit failed, before the next prompt too", () =>

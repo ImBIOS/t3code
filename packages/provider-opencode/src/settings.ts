@@ -9,6 +9,10 @@ import {
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
+// OpenCode reports no cache TTL, so idle compaction is usage-only. An empty
+// value disables automatic threshold compaction for the instance.
+const OPENCODE_AUTO_COMPACT_THRESHOLD_PATTERN = /^(?:|[1-9]\d{3,}|10000000)$/;
+
 export const OpenCodeSettings = makeProviderSettingsSchema(
   {
     enabled: Schema.Boolean.pipe(
@@ -21,6 +25,20 @@ export const OpenCodeSettings = makeProviderSettingsSchema(
         description: "Path to the OpenCode binary.",
         providerSettingsForm: {
           placeholder: "opencode",
+          clearWhenEmpty: "omit",
+        },
+      }),
+    ),
+    autoCompactThreshold: TrimmedString.check(
+      Schema.isPattern(OPENCODE_AUTO_COMPACT_THRESHOLD_PATTERN),
+    ).pipe(
+      Schema.withDecodingDefault(Effect.succeed("")),
+      Schema.annotateKey({
+        title: "Auto-compact after",
+        description:
+          "Compact after 1,000 to 10,000,000 tokens. Leave empty to disable automatic compaction.",
+        providerSettingsForm: {
+          placeholder: "e.g. 200000",
           clearWhenEmpty: "omit",
         },
       }),
@@ -55,7 +73,7 @@ export const OpenCodeSettings = makeProviderSettingsSchema(
     ),
   },
   {
-    order: ["binaryPath", "serverUrl", "serverPassword"],
+    order: ["binaryPath", "autoCompactThreshold", "serverUrl", "serverPassword"],
   },
 );
 export type OpenCodeSettings = typeof OpenCodeSettings.Type;
