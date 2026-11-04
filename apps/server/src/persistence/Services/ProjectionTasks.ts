@@ -26,6 +26,10 @@ export const ProjectionTask = Schema.Struct({
   lastFiredAt: Schema.NullOr(IsoDateTime),
   nextFireAt: Schema.NullOr(IsoDateTime),
   cancelledAt: Schema.NullOr(IsoDateTime),
+  lastRunStatus: Schema.optional(Schema.NullOr(Schema.String)),
+  lastRunAt: Schema.optional(Schema.NullOr(IsoDateTime)),
+  lastRunError: Schema.optional(Schema.NullOr(Schema.String)),
+  consecutiveFailures: Schema.optional(Schema.NullOr(Schema.Number)),
 });
 export type ProjectionTask = typeof ProjectionTask.Type;
 

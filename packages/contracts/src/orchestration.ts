@@ -450,6 +450,9 @@ export type TaskScheduleInterval = typeof TaskScheduleInterval.Type;
 export const TaskScheduleSpec = Schema.Union([TaskScheduleOnce, TaskScheduleInterval]);
 export type TaskScheduleSpec = typeof TaskScheduleSpec.Type;
 
+export const TaskRunStatus = Schema.Literals(["ok", "failed"]);
+export type TaskRunStatus = typeof TaskRunStatus.Type;
+
 export const OrchestrationTask = Schema.Struct({
   taskId: TaskId,
   projectId: ProjectId,
@@ -463,6 +466,13 @@ export const OrchestrationTask = Schema.Struct({
   // Next due time; null once a "once" task fired or any task was cancelled.
   nextFireAt: Schema.NullOr(IsoDateTime),
   cancelledAt: Schema.NullOr(IsoDateTime),
+  // Outcome of the most recent run, as judged by the self-heal loop. Optional
+  // so payloads from pre-heal servers still decode; absent = unknown.
+  lastRunStatus: Schema.optional(Schema.NullOr(TaskRunStatus)),
+  lastRunAt: Schema.optional(Schema.NullOr(IsoDateTime)),
+  lastRunError: Schema.optional(Schema.NullOr(Schema.String)),
+  // Consecutive failed runs since the last success; drives backoff/cap.
+  consecutiveFailures: Schema.optional(NonNegativeInt),
 });
 export type OrchestrationTask = typeof OrchestrationTask.Type;
 
@@ -978,6 +988,22 @@ const TaskCancelCommand = Schema.Struct({
   taskId: TaskId,
 });
 
+// Server-internal (emitted by the self-heal loop, never dispatchable by
+// clients): records the outcome of one scheduled run so retries/backoff stay
+// event-sourced. Deterministic commandIds (`server:task-note-run:<taskId>:<firedAt>:<status>`)
+// collapse crash-retries into the engine's idempotent command receipts.
+const TaskNoteRunCommand = Schema.Struct({
+  type: Schema.Literal("task.note-run"),
+  commandId: CommandId,
+  taskId: TaskId,
+  // The fire this outcome belongs to; must match the task's lastFiredAt so a
+  // stale or replayed outcome cannot overwrite a newer run.
+  firedAt: IsoDateTime,
+  status: TaskRunStatus,
+  // Only set when status is "failed".
+  error: Schema.optional(Schema.String),
+});
+
 // Server-internal only (never dispatchable by clients): the scheduler emits
 // these when a task's nextFireAt passes. commandIds are deterministic
 // (`server:task-fire:<taskId>:<dueAt>`), so a crash-retry collapses into the
@@ -1134,6 +1160,7 @@ const InternalOrchestrationCommand = Schema.Union([
   ThreadRevertCompleteCommand,
   ThreadTitleRegenerationCompleteCommand,
   TaskFireCommand,
+  TaskNoteRunCommand,
 ]);
 export type InternalOrchestrationCommand = typeof InternalOrchestrationCommand.Type;
 
@@ -1176,6 +1203,7 @@ export const OrchestrationEventType = Schema.Literals([
   "task.scheduled",
   "task.fired",
   "task.cancelled",
+  "task.run-noted",
 ]);
 export type OrchestrationEventType = typeof OrchestrationEventType.Type;
 
@@ -1359,6 +1387,16 @@ export const TaskFiredPayload = Schema.Struct({
 export const TaskCancelledPayload = Schema.Struct({
   taskId: TaskId,
   cancelledAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+export const TaskRunNotedPayload = Schema.Struct({
+  taskId: TaskId,
+  firedAt: IsoDateTime,
+  status: TaskRunStatus,
+  error: Schema.optional(Schema.String),
+  // Consecutive failures after applying this note; 0 on success.
+  consecutiveFailures: NonNegativeInt,
   updatedAt: IsoDateTime,
 });
 
@@ -1630,6 +1668,11 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("task.cancelled"),
     payload: TaskCancelledPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("task.run-noted"),
+    payload: TaskRunNotedPayload,
   }),
 ]);
 export type OrchestrationEvent = typeof OrchestrationEvent.Type;

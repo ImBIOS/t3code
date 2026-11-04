@@ -148,7 +148,8 @@ export function ScheduledTasksSection({
     <SettingsSection title="Scheduled tasks">
       <p className="text-sm text-muted-foreground">
         Start a turn on a thread automatically — nightly checkups, follow-ups, recurring chores.
-        Runs only while this T3 server is up.
+        Runs only while this T3 server is up. Failed runs are retried automatically with a healing
+        prompt (up to 3 in a row), then parked until the next scheduled slot.
       </p>
       {threads.length > 0 ? (
         <>
@@ -233,6 +234,10 @@ export function ScheduledTasksSection({
                     : ""}
                   {task.lastFiredAt !== null
                     ? ` · last ran ${new Date(task.lastFiredAt).toLocaleString()}`
+                    : ""}
+                  {task.lastRunStatus === "ok" ? " · last run ok" : ""}
+                  {task.lastRunStatus === "failed"
+                    ? ` · last run failed${task.consecutiveFailures ? ` (${task.consecutiveFailures} in a row)` : ""}`
                     : ""}
                   {task.cancelledAt !== null ? " · cancelled" : ""}
                 </p>

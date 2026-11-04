@@ -57,7 +57,7 @@ Examples include `thread.create`, `thread.turn.start`, and `thread.checkpoint.re
 
 #### Scheduled task
 
-A server-side automation that starts a turn on an existing thread at a due time. Created with `task.schedule` (one-shot `at` or interval `everyMs`), fired by the scheduler layer in [TaskScheduler.ts][25] via internal `task.fire` commands whose deterministic ids make retries idempotent, and turned into a normal `thread.turn.start` by [TaskFireReactor.ts][26]. Missed intervals coalesce: one fire steps over every overdue slot. See [scheduled-tasks.md][27].
+A server-side automation that starts a turn on an existing thread at a due time. Created with `task.schedule` (one-shot `at` or interval `everyMs`), fired by the scheduler layer in [TaskScheduler.ts][25] via internal `task.fire` commands whose deterministic ids make retries idempotent, and turned into a normal `thread.turn.start` by [TaskFireReactor.ts][26]. Missed intervals coalesce: one fire steps over every overdue slot. After each run settles, [TaskHealer.ts][28] judges the outcome (turn error/interruption, errored provider session) into `task.run-noted` events and re-runs failures with a healing prompt, up to 3 consecutive failures before parking. See [scheduled-tasks.md][27].
 
 #### Domain Event
 
@@ -180,6 +180,7 @@ The file patch and changed-file summary for one turn. It is usually computed in 
 [25]: ../../apps/server/src/orchestration/Layers/TaskScheduler.ts
 [26]: ../../apps/server/src/orchestration/Layers/TaskFireReactor.ts
 [27]: ../user/scheduled-tasks.md
+[28]: ../../apps/server/src/orchestration/Layers/TaskHealer.ts
 [19]: ../../apps/server/src/checkpointing/CheckpointStore.ts
 [20]: ../../apps/server/src/checkpointing/CheckpointDiffQuery.ts
 [21]: ../../apps/server/src/persistence/Services/ProjectionCheckpoints.ts

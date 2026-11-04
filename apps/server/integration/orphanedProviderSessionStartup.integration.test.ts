@@ -29,6 +29,7 @@ import * as OrchestrationEngine from "../src/orchestration/Services/Orchestratio
 import * as OrchestrationReactor from "../src/orchestration/Services/OrchestrationReactor.ts";
 import * as ProjectionSnapshotQuery from "../src/orchestration/Services/ProjectionSnapshotQuery.ts";
 import * as TaskScheduler from "../src/orchestration/Services/TaskScheduler.ts";
+import * as TaskHealer from "../src/orchestration/Services/TaskHealer.ts";
 import { makeSqlitePersistenceLive } from "../src/persistence/Layers/Sqlite.ts";
 import * as ProviderSessionRuntime from "../src/persistence/ProviderSessionRuntime.ts";
 import * as ExternalLauncher from "../src/process/externalLauncher.ts";
@@ -77,6 +78,10 @@ const startupDependencies = Layer.mergeAll(
     start: () => Effect.void,
   }),
   Layer.succeed(TaskScheduler.TaskScheduler, {
+    start: () => Effect.void,
+    tick: () => Effect.succeed(0),
+  }),
+  Layer.succeed(TaskHealer.TaskHealer, {
     start: () => Effect.void,
     tick: () => Effect.succeed(0),
   }),

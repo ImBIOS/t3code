@@ -479,7 +479,11 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           updated_at AS "updatedAt",
           last_fired_at AS "lastFiredAt",
           next_fire_at AS "nextFireAt",
-          cancelled_at AS "cancelledAt"
+          cancelled_at AS "cancelledAt",
+          last_run_status AS "lastRunStatus",
+          last_run_at AS "lastRunAt",
+          last_run_error AS "lastRunError",
+          consecutive_failures AS "consecutiveFailures"
         FROM projection_tasks
         ORDER BY created_at ASC, task_id ASC
       `,
@@ -501,7 +505,11 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           updated_at AS "updatedAt",
           last_fired_at AS "lastFiredAt",
           next_fire_at AS "nextFireAt",
-          cancelled_at AS "cancelledAt"
+          cancelled_at AS "cancelledAt",
+          last_run_status AS "lastRunStatus",
+          last_run_at AS "lastRunAt",
+          last_run_error AS "lastRunError",
+          consecutive_failures AS "consecutiveFailures"
         FROM projection_tasks
         WHERE project_id = ${projectId}
         ORDER BY created_at ASC, task_id ASC
@@ -524,7 +532,11 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           updated_at AS "updatedAt",
           last_fired_at AS "lastFiredAt",
           next_fire_at AS "nextFireAt",
-          cancelled_at AS "cancelledAt"
+          cancelled_at AS "cancelledAt",
+          last_run_status AS "lastRunStatus",
+          last_run_at AS "lastRunAt",
+          last_run_error AS "lastRunError",
+          consecutive_failures AS "consecutiveFailures"
         FROM projection_tasks
         WHERE next_fire_at IS NOT NULL
           AND cancelled_at IS NULL
@@ -2056,6 +2068,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                     lastFiredAt: row.lastFiredAt,
                     nextFireAt: row.nextFireAt,
                     cancelledAt: row.cancelledAt,
+                    ...mapRunOutcomeFields(row),
                   } satisfies OrchestrationTask;
                 }),
                 updatedAt: updatedAt ?? "1970-01-01T00:00:00.000Z",
@@ -2414,6 +2427,27 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     };
   });
 
+  // pre-heal rows (nulls) decode to absent outcome fields; forward rows
+  // carry explicit lastRun* values.
+  function mapRunOutcomeFields(row: ProjectionTask): {
+    readonly lastRunStatus?: "failed" | "ok";
+    readonly lastRunAt?: string | null;
+    readonly lastRunError?: string | null;
+    readonly consecutiveFailures?: number;
+  } {
+    const status = row.lastRunStatus ?? null;
+    const failures = row.consecutiveFailures ?? 0;
+    if (status !== "ok" && status !== "failed") {
+      return { consecutiveFailures: failures };
+    }
+    return {
+      lastRunStatus: status,
+      ...(row.lastRunAt !== undefined ? { lastRunAt: row.lastRunAt } : {}),
+      ...(row.lastRunError !== undefined ? { lastRunError: row.lastRunError } : {}),
+      consecutiveFailures: failures,
+    };
+  }
+
   const decodeTaskRows = (rows: ReadonlyArray<ProjectionTask>) =>
     Effect.forEach(
       rows,
@@ -2440,6 +2474,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               lastFiredAt: row.lastFiredAt,
               nextFireAt: row.nextFireAt,
               cancelledAt: row.cancelledAt,
+              ...mapRunOutcomeFields(row),
             }).pipe(
               Effect.mapError(
                 toPersistenceDecodeError("ProjectionSnapshotQuery.decodeTaskRows:decode"),

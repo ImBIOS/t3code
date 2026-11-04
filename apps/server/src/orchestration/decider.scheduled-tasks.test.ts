@@ -82,6 +82,9 @@ function makeTask(input: {
   readonly nextFireAt?: string | null;
   readonly cancelledAt?: string | null;
   readonly updatedAt?: string;
+  readonly lastFiredAt?: string | null;
+  readonly lastRunAt?: string | null;
+  readonly consecutiveFailures?: number;
 }): OrchestrationTask {
   return {
     taskId: TaskId.make("task-1"),
@@ -91,10 +94,14 @@ function makeTask(input: {
     schedule: input.schedule ?? { kind: "interval", everyMs: HOUR_MS },
     createdAt: NOW,
     updatedAt: input.updatedAt ?? NOW,
-    lastFiredAt: null,
+    lastFiredAt: input.lastFiredAt ?? null,
     // Explicit null must survive: an optional chain would read it as absent.
     nextFireAt: input.nextFireAt === undefined ? FUTURE : input.nextFireAt,
     cancelledAt: input.cancelledAt ?? null,
+    ...(input.lastRunAt !== undefined ? { lastRunAt: input.lastRunAt } : {}),
+    ...(input.consecutiveFailures !== undefined
+      ? { consecutiveFailures: input.consecutiveFailures }
+      : {}),
   };
 }
 
@@ -345,6 +352,84 @@ it.layer(NodeServices.layer)("scheduled task decider", (it) => {
           throw new Error("expected task.cancelled");
         }
       }
+    }),
+  );
+
+  it.effect("notes a failed run and increments consecutive failures", () =>
+    Effect.gen(function* () {
+      const decided = yield* run(
+        {
+          type: "task.note-run",
+          commandId: CommandId.make("cmd-note-run"),
+          taskId: TaskId.make("task-1"),
+          firedAt: FUTURE,
+          status: "failed",
+          error: "boom",
+        },
+        makeReadModel({ tasks: [makeTask({ lastFiredAt: FUTURE, consecutiveFailures: 1 })] }),
+      );
+      const events = Array.isArray(decided) ? decided : [decided];
+      expect(events).toHaveLength(1);
+      expect(events[0]?.type).toBe("task.run-noted");
+      if (events[0]?.type === "task.run-noted") {
+        expect(events[0].payload.status).toBe("failed");
+        expect(events[0].payload.error).toBe("boom");
+        expect(events[0].payload.consecutiveFailures).toBe(2);
+      }
+    }),
+  );
+
+  it.effect("notes an ok run and resets consecutive failures", () =>
+    Effect.gen(function* () {
+      const decided = yield* run(
+        {
+          type: "task.note-run",
+          commandId: CommandId.make("cmd-note-run-ok"),
+          taskId: TaskId.make("task-1"),
+          firedAt: FUTURE,
+          status: "ok",
+        },
+        makeReadModel({ tasks: [makeTask({ lastFiredAt: FUTURE, consecutiveFailures: 2 })] }),
+      );
+      const events = Array.isArray(decided) ? decided : [decided];
+      expect(events[0]?.type).toBe("task.run-noted");
+      if (events[0]?.type === "task.run-noted") {
+        expect(events[0].payload.consecutiveFailures).toBe(0);
+      }
+    }),
+  );
+
+  it.effect("rejects noting a stale fire", () =>
+    Effect.gen(function* () {
+      const error = yield* run(
+        {
+          type: "task.note-run",
+          commandId: CommandId.make("cmd-note-run-stale"),
+          taskId: TaskId.make("task-1"),
+          firedAt: PAST,
+          status: "failed",
+        },
+        makeReadModel({ tasks: [makeTask({ lastFiredAt: FUTURE })] }),
+      ).pipe(Effect.flip);
+      expect(error._tag).toBe("OrchestrationCommandInvariantError");
+    }),
+  );
+
+  it.effect("rejects noting a run on a cancelled task", () =>
+    Effect.gen(function* () {
+      const error = yield* run(
+        {
+          type: "task.note-run",
+          commandId: CommandId.make("cmd-note-run-cancelled"),
+          taskId: TaskId.make("task-1"),
+          firedAt: FUTURE,
+          status: "ok",
+        },
+        makeReadModel({
+          tasks: [makeTask({ lastFiredAt: FUTURE, cancelledAt: NOW, nextFireAt: null })],
+        }),
+      ).pipe(Effect.flip);
+      expect(error._tag).toBe("OrchestrationCommandInvariantError");
     }),
   );
 });

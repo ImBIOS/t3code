@@ -74,6 +74,7 @@ function commandToAggregateRef(command: OrchestrationCommand): {
     case "task.schedule":
     case "task.cancel":
     case "task.fire":
+    case "task.note-run":
       return {
         aggregateKind: "task",
         aggregateId: command.taskId,

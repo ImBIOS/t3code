@@ -61,6 +61,7 @@ import { CheckpointReactorLive } from "./orchestration/Layers/CheckpointReactor.
 import { ThreadDeletionReactorLive } from "./orchestration/Layers/ThreadDeletionReactor.ts";
 import { TaskFireReactorLive } from "./orchestration/Layers/TaskFireReactor.ts";
 import { TaskSchedulerLive } from "./orchestration/Layers/TaskScheduler.ts";
+import { TaskHealerLive } from "./orchestration/Layers/TaskHealer.ts";
 import * as AgentAwarenessRelay from "./relay/AgentAwarenessRelay.ts";
 import { hasCloudPublicConfig } from "./cloud/publicConfig.ts";
 import { ProviderRegistryLive } from "./provider/Layers/ProviderRegistry.ts";
@@ -372,10 +373,13 @@ const ProviderRuntimeLayerLive = ProviderSessionReaperLive.pipe(
 );
 
 // The task scheduler reads due tasks from the projection and dispatches
-// `task.fire` through the engine, so it sits beside the other orchestration
-// consumers with the same layer provided underneath.
-const TaskSchedulerRuntimeLayerLive = TaskSchedulerLive.pipe(
-  Layer.provideMerge(OrchestrationLayerLive),
+// `task.fire` through the engine; the healer verifies recent runs and re-runs
+// failures. Both sit beside the other orchestration consumers with the same
+// layer provided underneath. Merged into one provideMerge to stay within
+// Effect's pipe variadic limit (see the "Merged pair" comment below).
+const TaskSchedulingRuntimeLayerLive = Layer.mergeAll(
+  TaskSchedulerLive.pipe(Layer.provideMerge(OrchestrationLayerLive)),
+  TaskHealerLive.pipe(Layer.provideMerge(OrchestrationLayerLive)),
 );
 
 const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
@@ -386,7 +390,7 @@ const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   Layer.provideMerge(GitLayerLive),
   Layer.provideMerge(VcsLayerLive),
   Layer.provideMerge(ProviderRuntimeLayerLive),
-  Layer.provideMerge(TaskSchedulerRuntimeLayerLive),
+  Layer.provideMerge(TaskSchedulingRuntimeLayerLive),
   Layer.provideMerge(Layer.mergeAll(TerminalLayerLive, PreviewLayerLive)),
   Layer.provideMerge(PersistenceLayerLive),
   Layer.provideMerge(Keybindings.layer),

@@ -31,3 +31,8 @@ Cancelled tasks stay visible until the panel is refreshed elsewhere.
 - Recurring tasks keep their schedule even if a run starts late; each next run is spaced
   from the previous scheduled time, not from when the last one actually ran.
 - A task can be cancelled from any connected client.
+- Self-heal: after each run settles, the server checks whether the turn errored,
+  was interrupted, or left its provider session in error. Failed runs are retried
+  automatically with a healing follow-up on the same thread (up to 3 consecutive
+  failures), then parked until the next scheduled slot. Run status shows in the
+  task list (last run ok / failed).

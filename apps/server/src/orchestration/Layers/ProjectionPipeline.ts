@@ -1635,6 +1635,10 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               lastFiredAt: null,
               nextFireAt: event.payload.nextFireAt,
               cancelledAt: null,
+              lastRunStatus: null,
+              lastRunAt: null,
+              lastRunError: null,
+              consecutiveFailures: 0,
             });
             return;
           }
@@ -1650,6 +1654,29 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               ...existingRow.value,
               lastFiredAt: event.payload.firedAt,
               nextFireAt: event.payload.nextFireAt,
+              updatedAt: event.payload.updatedAt,
+            });
+            return;
+          }
+
+          case "task.run-noted": {
+            const existingRow = yield* projectionTaskRepository.getById({
+              taskId: event.payload.taskId,
+            });
+            if (Option.isNone(existingRow)) {
+              return;
+            }
+            // Pin to the judged fire: a stale note for an older run must not
+            // overwrite a newer outcome.
+            if (existingRow.value.lastFiredAt !== event.payload.firedAt) {
+              return;
+            }
+            yield* projectionTaskRepository.upsert({
+              ...existingRow.value,
+              lastRunStatus: event.payload.status,
+              lastRunAt: event.payload.firedAt,
+              lastRunError: event.payload.status === "ok" ? null : (event.payload.error ?? null),
+              consecutiveFailures: event.payload.consecutiveFailures,
               updatedAt: event.payload.updatedAt,
             });
             return;

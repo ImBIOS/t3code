@@ -40,6 +40,7 @@ import {
   ThreadTurnDiffCompletedPayload,
   TaskCancelledPayload,
   TaskFiredPayload,
+  TaskRunNotedPayload,
   TaskScheduledPayload,
 } from "./Schemas.ts";
 
@@ -455,6 +456,29 @@ export function projectEvent(
                   ...task,
                   nextFireAt: null,
                   cancelledAt: payload.cancelledAt,
+                  updatedAt: payload.updatedAt,
+                }
+              : task,
+          ),
+        })),
+      );
+
+    case "task.run-noted":
+      return decodeForEvent(TaskRunNotedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          tasks: nextBase.tasks.map((task) =>
+            task.taskId === payload.taskId
+              ? {
+                  ...task,
+                  ...(payload.status === "ok"
+                    ? { lastRunStatus: "ok" as const, lastRunError: null }
+                    : {
+                        lastRunStatus: "failed" as const,
+                        ...(payload.error !== undefined ? { lastRunError: payload.error } : {}),
+                      }),
+                  lastRunAt: payload.firedAt,
+                  consecutiveFailures: payload.consecutiveFailures,
                   updatedAt: payload.updatedAt,
                 }
               : task,

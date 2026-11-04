@@ -32,7 +32,11 @@ const makeProjectionTaskRepository = Effect.gen(function* () {
           updated_at,
           last_fired_at,
           next_fire_at,
-          cancelled_at
+          cancelled_at,
+          last_run_status,
+          last_run_at,
+          last_run_error,
+          consecutive_failures
         )
         VALUES (
           ${row.taskId},
@@ -45,7 +49,11 @@ const makeProjectionTaskRepository = Effect.gen(function* () {
           ${row.updatedAt},
           ${row.lastFiredAt},
           ${row.nextFireAt},
-          ${row.cancelledAt}
+          ${row.cancelledAt},
+          ${row.lastRunStatus ?? null},
+          ${row.lastRunAt ?? null},
+          ${row.lastRunError ?? null},
+          ${row.consecutiveFailures ?? 0}
         )
         ON CONFLICT (task_id)
         DO UPDATE SET
@@ -58,7 +66,11 @@ const makeProjectionTaskRepository = Effect.gen(function* () {
           updated_at = excluded.updated_at,
           last_fired_at = excluded.last_fired_at,
           next_fire_at = excluded.next_fire_at,
-          cancelled_at = excluded.cancelled_at
+          cancelled_at = excluded.cancelled_at,
+          last_run_status = excluded.last_run_status,
+          last_run_at = excluded.last_run_at,
+          last_run_error = excluded.last_run_error,
+          consecutive_failures = excluded.consecutive_failures
       `,
   });
 
@@ -78,7 +90,11 @@ const makeProjectionTaskRepository = Effect.gen(function* () {
           updated_at AS "updatedAt",
           last_fired_at AS "lastFiredAt",
           next_fire_at AS "nextFireAt",
-          cancelled_at AS "cancelledAt"
+          cancelled_at AS "cancelledAt",
+          last_run_status AS "lastRunStatus",
+          last_run_at AS "lastRunAt",
+          last_run_error AS "lastRunError",
+          consecutive_failures AS "consecutiveFailures"
         FROM projection_tasks
         WHERE task_id = ${taskId}
       `,
@@ -100,7 +116,11 @@ const makeProjectionTaskRepository = Effect.gen(function* () {
           updated_at AS "updatedAt",
           last_fired_at AS "lastFiredAt",
           next_fire_at AS "nextFireAt",
-          cancelled_at AS "cancelledAt"
+          cancelled_at AS "cancelledAt",
+          last_run_status AS "lastRunStatus",
+          last_run_at AS "lastRunAt",
+          last_run_error AS "lastRunError",
+          consecutive_failures AS "consecutiveFailures"
         FROM projection_tasks
         WHERE project_id = ${projectId}
         ORDER BY created_at ASC, task_id ASC

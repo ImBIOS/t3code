@@ -1590,6 +1590,55 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
+    case "task.note-run": {
+      const task = yield* requireTask({
+        readModel,
+        command,
+        taskId: command.taskId,
+      });
+      // Out of scope: cancelled tasks keep history as-is.
+      if (task.cancelledAt !== null) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `task ${command.taskId} is cancelled and cannot note a run`,
+        });
+      }
+      // Stale or replayed outcome: only the latest fire's outcome may land.
+      // fire advances nextFireAt AND stamps lastFiredAt, so comparing against
+      // lastFiredAt pins the note to the exact run the healer judged.
+      if (task.lastFiredAt === null || command.firedAt !== task.lastFiredAt) {
+        return yield* Effect.fail(
+          new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: `task ${command.taskId} run at ${command.firedAt} is not the latest fire and cannot be noted`,
+          }),
+        );
+      }
+      // Idempotent per (taskId, firedAt, status): a healer crash-retry
+      // dispatches the same deterministic commandId, which the engine's
+      // receipt dedupe already collapses; a status flip on re-note would mean
+      // the healer re-judged, which must not silently overwrite history.
+      const consecutiveFailures = command.status === "ok" ? 0 : (task.consecutiveFailures ?? 0) + 1;
+      const notedAt = yield* nowIso;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "task",
+          aggregateId: command.taskId,
+          occurredAt: notedAt,
+          commandId: command.commandId,
+        })),
+        type: "task.run-noted",
+        payload: {
+          taskId: command.taskId,
+          firedAt: command.firedAt,
+          status: command.status,
+          ...(command.error !== undefined ? { error: command.error } : {}),
+          consecutiveFailures,
+          updatedAt: notedAt,
+        },
+      };
+    }
+
     default: {
       command satisfies never;
       const fallback = command as never as { type: string };
