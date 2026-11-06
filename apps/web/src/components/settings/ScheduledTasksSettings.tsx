@@ -146,6 +146,7 @@ const EMPTY_DRAFT: DraftState = {
   enabled: true,
   scheduleMode: "fixed",
   intervalMinutes: "15",
+  cronExpression: "0 9 * * *",
   timeOfDay: "09:00",
   runAt: "",
   savedRunAt: "",
@@ -312,6 +313,7 @@ export function scheduleLabel(schedule: ScheduledTaskSchedule): string {
       ? `Every ${minutes} min`
       : `Every ${Math.round(schedule.everyMs / 1000)} sec`;
   }
+  if (schedule.type === "cron") return `Cron ${schedule.expression}`;
   const weekdays = schedule.weekdays ?? [];
   const days =
     weekdays.length === 0
@@ -1256,6 +1258,10 @@ function ScheduledTaskEditorForm({
   const offersOnce =
     environment?.serverConfig?.environment.capabilities.oneTimeSchedules === true ||
     task?.schedule.type === "once";
+  // Older servers reject cron schedules, so offer Cron only where it can save.
+  const offersCron =
+    environment?.serverConfig?.environment.capabilities.cronSchedules === true ||
+    task?.schedule.type === "cron";
   const offersThreadModes =
     environment?.serverConfig?.environment.capabilities.scheduledTaskThreadModes === true;
   const connected =
@@ -1393,6 +1399,13 @@ function ScheduledTaskEditorForm({
       );
       return;
     }
+    if (schedule.type === "cron" && !offersCron) {
+      reportFailure(
+        "Cron is not available here",
+        "This environment runs an older T3 Code. Update it to schedule a cron task, or pick another schedule.",
+      );
+      return;
+    }
     if (draft.workspaceMode === "existing_worktree" && !draft.existingWorktreePath.trim()) {
       reportFailure("Checkout path is required", "Enter the path of the checkout to run in.");
       return;
@@ -1451,8 +1464,8 @@ function ScheduledTaskEditorForm({
       <DialogHeader>
         <DialogTitle>{draft.editingId ? "Edit task" : "New task"}</DialogTitle>
         <DialogDescription>
-          Run a prompt automatically on an interval, at a fixed time, once at a set date, or when a
-          webhook is called.
+          Run a prompt automatically on an interval, on a cron schedule, at a fixed time, once at a
+          set date, or when a webhook is called.
         </DialogDescription>
       </DialogHeader>
 
@@ -1693,6 +1706,7 @@ function ScheduledTaskEditorForm({
                     mode === "fixed" ||
                     mode === "once" ||
                     mode === "interval" ||
+                    mode === "cron" ||
                     mode === "webhook"
                   )
                     setDraft((current) => {
@@ -1723,6 +1737,9 @@ function ScheduledTaskEditorForm({
                   <Toggle value="once">Once</Toggle>
                 ) : null}
                 <Toggle value="interval">Every interval</Toggle>
+                {offersCron || draft.scheduleMode === "cron" ? (
+                  <Toggle value="cron">Cron</Toggle>
+                ) : null}
                 <Toggle
                   value="webhook"
                   disabled={webhookDenial !== undefined && draft.scheduleMode !== "webhook"}
@@ -1735,7 +1752,7 @@ function ScheduledTaskEditorForm({
             {webhookDenial !== undefined ? (
               <ManagedNotice>
                 {draft.scheduleMode === "webhook"
-                  ? `${webhookDenial} Switch this task to a time or an interval, or turn it off, to save it.`
+                  ? `${webhookDenial} Switch this task to a time, an interval, or a cron schedule, or turn it off, to save it.`
                   : webhookDenial}
               </ManagedNotice>
             ) : null}
@@ -1927,6 +1944,24 @@ function ScheduledTaskEditorForm({
                     setDraft((current) => ({ ...current, runAt: event.target.value }))
                   }
                 />
+              </div>
+            ) : draft.scheduleMode === "cron" ? (
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="scheduled-task-cron">Cron expression</Label>
+                  <Input
+                    id="scheduled-task-cron"
+                    className="w-56"
+                    placeholder="30 9 * * 1-5"
+                    value={draft.cronExpression}
+                    onChange={(event) =>
+                      setDraft((current) => ({ ...current, cronExpression: event.target.value }))
+                    }
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Five fields in this environment's time zone: minute hour day month weekday.
+                </p>
               </div>
             ) : draft.scheduleMode === "fixed" ? (
               <div className="flex flex-wrap items-center gap-3">

@@ -84,7 +84,10 @@ list by environment or project. Each task runs on the environment you choose,
 using its project, model, and workspace settings. Fixed-time schedules use that
 environment's time zone, which may differ from your phone's. Choose **Once**
 to run a task a single time at a date and time in your own time zone. If the
-environment is offline then, the task runs when it is back.
+environment is offline then, the task runs when it is back. Choose **Cron**
+for calendar patterns a single daily time cannot express, such as twice each
+weekday (`0 9,17 * * 1-5`): five fields, minute hour day month weekday, in the
+environment's time zone.
 
 Under **Destination**, choose where runs go. **New thread each run** keeps every
 run separate. The two one-thread choices start a thread on the first run and post

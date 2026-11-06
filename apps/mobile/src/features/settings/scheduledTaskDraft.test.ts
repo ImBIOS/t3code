@@ -80,6 +80,20 @@ describe("scheduleDraftForTask", () => {
       scheduleFromDraft({ ...draft, filters: [{ id: "f1", path: "", op: "exists", value: "" }] }),
     ).toBeNull();
   });
+
+  it("round-trips a cron expression and rejects invalid ones", () => {
+    const draft = scheduleDraftForTask({ schedule: { type: "cron", expression: "30 9 * * 1-5" } });
+    expect(draft.mode).toBe("cron");
+    expect(draft.cronExpression).toBe("30 9 * * 1-5");
+    expect(scheduleFromDraft(draft)).toEqual({ type: "cron", expression: "30 9 * * 1-5" });
+    expect(scheduleFromDraft({ ...draft, cronExpression: "  0  9  *  *  *  " })).toEqual({
+      type: "cron",
+      expression: "0  9  *  *  *",
+    });
+    for (const cronExpression of ["30 9 * *", "0 30 9 * * 1-5", "0 0 30 2 *", ""]) {
+      expect(scheduleFromDraft({ ...draft, cronExpression })).toBeNull();
+    }
+  });
 });
 
 describe("scheduleFromDraft", () => {

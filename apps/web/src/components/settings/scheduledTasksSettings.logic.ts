@@ -1,4 +1,4 @@
-import { isWebhookDedupeTemplate } from "@t3tools/contracts";
+import { isWebhookDedupeTemplate, validateCronExpression } from "@t3tools/contracts";
 import {
   EnvironmentId,
   MAX_WEBHOOK_DELIVERY_AGE_MINUTES,
@@ -54,7 +54,7 @@ export function validateScheduledTasksSearch(raw: Record<string, unknown>) {
   };
 }
 
-export type ScheduleMode = "fixed" | "once" | "interval" | "webhook";
+export type ScheduleMode = "fixed" | "once" | "interval" | "cron" | "webhook";
 export type WorkspaceMode = "root" | "worktree" | "existing_worktree";
 
 export interface DraftState {
@@ -64,6 +64,7 @@ export interface DraftState {
   readonly enabled: boolean;
   readonly scheduleMode: ScheduleMode;
   readonly intervalMinutes: string;
+  readonly cronExpression: string;
   readonly timeOfDay: string;
   /** Local date and time as a `datetime-local` input value, such as 2026-11-02T15:00. */
   readonly runAt: string;
@@ -120,6 +121,10 @@ export function scheduleDraftErrors(draft: DraftState) {
         { title: "Invalid run time", description: "That time does not exist in your time zone." },
       ];
     return [];
+  }
+  if (draft.scheduleMode === "cron") {
+    const reason = validateCronExpression(draft.cronExpression);
+    return reason === null ? [] : [{ title: "Invalid cron expression", description: reason }];
   }
   if (draft.scheduleMode !== "webhook") return [];
   if (parseMaxDeliveryAge(draft.maxDeliveryAgeMinutes) === undefined)
@@ -228,6 +233,9 @@ export function scheduleFromDraft(draft: DraftState): ScheduledTaskUpsertSchedul
     const everyMs = Math.round(Number(draft.intervalMinutes) * 60_000);
     return { type: "interval", everyMs };
   }
+  if (draft.scheduleMode === "cron") {
+    return { type: "cron", expression: draft.cronExpression.trim() };
+  }
   const selectedEveryDay = draft.weekdays.size === 0 || draft.weekdays.size === 7;
   return {
     type: "fixed_time",
@@ -251,6 +259,7 @@ export function taskToDraft(task: ScheduledTask): DraftState {
     scheduleMode: schedule.type === "fixed_time" ? "fixed" : schedule.type,
     intervalMinutes:
       schedule.type === "interval" ? String(Math.max(1, schedule.everyMs / 60_000)) : "15",
+    cronExpression: schedule.type === "cron" ? schedule.expression : "0 9 * * *",
     timeOfDay: schedule.type === "fixed_time" ? schedule.timeOfDay : "09:00",
     runAt: schedule.type === "once" ? toDateTimeLocalValue(new Date(schedule.runAt)) : "",
     savedRunAt: schedule.type === "once" ? schedule.runAt : "",

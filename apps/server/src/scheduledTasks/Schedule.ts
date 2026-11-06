@@ -1,6 +1,12 @@
-import { MIN_SCHEDULED_TASK_INTERVAL_MS, type ScheduledTaskSchedule } from "@t3tools/contracts";
+import {
+  MIN_SCHEDULED_TASK_INTERVAL_MS,
+  normalizeCronExpression,
+  type ScheduledTaskSchedule,
+} from "@t3tools/contracts";
+import * as Cron from "effect/Cron";
 import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
+import * as Result from "effect/Result";
 
 const MINUTE_MS = 60_000;
 
@@ -25,6 +31,18 @@ export function nextScheduledRunAt(
   if (schedule.type === "interval") {
     // Intervals advance elapsed time, including across daylight-saving changes.
     return DateTime.addDuration(from, Math.max(schedule.everyMs, MIN_SCHEDULED_TASK_INTERVAL_MS));
+  }
+  if (schedule.type === "cron") {
+    // Parsed without a zone, so the expression runs in the server's local time.
+    const parsed = Cron.parse(schedule.expression);
+    if (Result.isFailure(parsed)) return null;
+    try {
+      const next = DateTime.make(Cron.next(parsed.success, DateTime.toDateUtc(from)));
+      return Option.isSome(next) ? next.value : null;
+    } catch {
+      // Impossible dates (February 30th) never land; saves reject them first.
+      return null;
+    }
   }
 
   const time = parseTimeOfDay(schedule.timeOfDay);
@@ -55,6 +73,16 @@ export function isSameSchedule(a: ScheduledTaskSchedule, b: ScheduledTaskSchedul
   if (a.type === "interval") {
     return b.type === "interval" && a.everyMs === b.everyMs;
   }
+  if (a.type === "cron") {
+    if (b.type !== "cron") return false;
+    // Compare parsed fields so `1-5` and `1,2,3,4,5` do not reschedule pending runs.
+    const parsedA = Cron.parse(a.expression);
+    const parsedB = Cron.parse(b.expression);
+    if (Result.isFailure(parsedA) || Result.isFailure(parsedB)) {
+      return normalizeCronExpression(a.expression) === normalizeCronExpression(b.expression);
+    }
+    return Cron.format(parsedA.success) === Cron.format(parsedB.success);
+  }
   if (a.type === "webhook") return b.type === "webhook";
   if (a.type === "once") return b.type === "once" && Date.parse(a.runAt) === Date.parse(b.runAt);
   if (b.type !== "fixed_time") return false;
@@ -70,13 +98,18 @@ export function isSameSchedule(a: ScheduledTaskSchedule, b: ScheduledTaskSchedul
   );
 }
 
-const MISSED_FIXED_TIME_GRACE_MS = 10 * MINUTE_MS;
+const MISSED_CALENDAR_RUN_GRACE_MS = 10 * MINUTE_MS;
 
-export function isMissedFixedTimeRun(
+/**
+ * A wall-clock run (fixed time or cron) whose due time passed long ago was
+ * missed while the server was down; skip it instead of firing late. Interval
+ * runs have no wall-clock anchor, so they always fire when due.
+ */
+export function isMissedCalendarRun(
   schedule: ScheduledTaskSchedule,
   dueAt: DateTime.DateTime,
   now: DateTime.DateTime,
 ): boolean {
-  if (schedule.type !== "fixed_time") return false;
-  return DateTime.toEpochMillis(now) - DateTime.toEpochMillis(dueAt) > MISSED_FIXED_TIME_GRACE_MS;
+  if (schedule.type !== "fixed_time" && schedule.type !== "cron") return false;
+  return DateTime.toEpochMillis(now) - DateTime.toEpochMillis(dueAt) > MISSED_CALENDAR_RUN_GRACE_MS;
 }

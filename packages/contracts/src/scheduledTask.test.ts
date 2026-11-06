@@ -38,6 +38,32 @@ describe("ScheduledTaskSchedule", () => {
       expect(() => decodeUpsertSchedule({ type: "once", runAt })).toThrow();
     }
   });
+
+  it("accepts five-field cron and rejects seconds, bad fields, and impossible dates", () => {
+    for (const expression of ["30 9 * * 1-5", "0 9 * * MON", "*/15 9-17 * * *", "0 0 29 2 *"]) {
+      expect(decodeUpsertSchedule({ type: "cron", expression })).toEqual({
+        type: "cron",
+        expression,
+      });
+    }
+    expect(decodeUpsertSchedule({ type: "cron", expression: "  30  9  *  *  1-5  " })).toEqual({
+      type: "cron",
+      expression: "30  9  *  *  1-5",
+    });
+    for (const expression of [
+      "30 9 * *",
+      "0 30 9 * * 1-5",
+      "0 0 30 2 *",
+      "0 24 * * *",
+      "60 9 * * *",
+      "0 0 0 * *",
+      "not a cron",
+      "",
+      "   ",
+    ]) {
+      expect(() => decodeUpsertSchedule({ type: "cron", expression })).toThrow();
+    }
+  });
 });
 
 it.each(["literal", " ", "\t\n", "{{body.bad", "{{unknown.field}}"])(

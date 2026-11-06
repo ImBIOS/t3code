@@ -48,6 +48,64 @@ const input = {
   interactionMode: "default",
 };
 
+it.effect("saves a cron schedule with a normalized expression and its next run", () =>
+  Effect.gen(function* () {
+    vi.stubEnv("TZ", "UTC");
+    yield* TestClock.setTime(Date.parse("2026-11-06T12:00:00.000Z"));
+    yield* Effect.gen(function* () {
+      const service = yield* ScheduledTaskService.ScheduledTaskService;
+      const decoded = yield* decodeInput({
+        ...input,
+        commandId: "cron-schedule",
+        schedule: { type: "cron", expression: "  0  9  *  *  1-5  " },
+      });
+      const created = yield* service.upsert(decoded);
+      expect(created.task.schedule).toEqual({ type: "cron", expression: "0 9 * * 1-5" });
+      expect(created.task.nextRunAt).toBe("2026-11-09T09:00:00.000Z");
+      expect((yield* service.list()).tasks[0]?.nextRunAt).toBe("2026-11-09T09:00:00.000Z");
+
+      // A title-only save keeps the stored next run; an equivalent expression does too.
+      const renamed = yield* service.upsert(
+        yield* decodeInput({
+          ...decoded,
+          id: created.task.id,
+          commandId: undefined,
+          title: "Renamed",
+        }),
+      );
+      expect(renamed.task.nextRunAt).toBe("2026-11-09T09:00:00.000Z");
+      const reworded = yield* service.upsert(
+        yield* decodeInput({
+          ...decoded,
+          id: created.task.id,
+          commandId: undefined,
+          title: "Renamed",
+          schedule: { type: "cron", expression: "0 9 * * 1,2,3,4,5" },
+        }),
+      );
+      expect(reworded.task.nextRunAt).toBe("2026-11-09T09:00:00.000Z");
+
+      // Exercise completion rescheduling without starting any provider process.
+      const completed = yield* service.runNow({ id: created.task.id });
+      expect(completed.task.lastRunStatus).toBe("failed");
+      expect(completed.task.nextRunAt).toBe("2026-11-09T09:00:00.000Z");
+
+      // Invalid expressions never reach the save; decoding rejects them first.
+      for (const expression of ["0 30 9 * * 1-5", "0 0 30 2 *", "every weekday at 9"]) {
+        const failure = yield* decodeInput({
+          ...decoded,
+          commandId: undefined,
+          schedule: { type: "cron", expression },
+        }).pipe(Effect.flip);
+        expect(String(failure)).toContain("cron");
+      }
+    }).pipe(Effect.provide(serviceLayer));
+  }).pipe(
+    Effect.provideService(ServerActivation, Effect.never),
+    Effect.provide(SqlitePersistence.layerMemory),
+  ),
+);
+
 it.effect.each([
   {
     zone: "America/New_York",

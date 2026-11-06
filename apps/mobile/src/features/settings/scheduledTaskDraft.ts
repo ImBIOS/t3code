@@ -1,4 +1,8 @@
-import { isWebhookDedupeTemplate, scheduledTaskThreadMode } from "@t3tools/contracts";
+import {
+  isWebhookDedupeTemplate,
+  scheduledTaskThreadMode,
+  validateCronExpression,
+} from "@t3tools/contracts";
 import type {
   ModelSelection,
   ServerConfig,
@@ -52,12 +56,14 @@ export function scheduledTaskDefaultModel(
 }
 
 export type ScheduleDraft = {
-  readonly mode: "fixed_time" | "once" | "interval" | "webhook";
+  readonly mode: "fixed_time" | "once" | "interval" | "cron" | "webhook";
   readonly timeOfDay: string;
   /** ISO time for a one-time run. Empty until the user picks the "Once" mode. */
   readonly runAt: string;
   readonly weekdays: ReadonlyArray<number>;
   readonly intervalMinutes: string;
+  /** Five-field cron expression, such as `30 9 * * 1-5`. */
+  readonly cronExpression: string;
   readonly signature: ScheduledTaskWebhookSignature | null;
   readonly maxDeliveryAgeMinutes: string;
   readonly replayKey: string;
@@ -74,6 +80,7 @@ export const DEFAULT_SCHEDULE: ScheduleDraft = {
   runAt: "",
   weekdays: [1, 2, 3, 4, 5],
   intervalMinutes: "15",
+  cronExpression: "0 9 * * *",
   signature: null,
   maxDeliveryAgeMinutes: "",
   replayKey: "",
@@ -95,6 +102,8 @@ export function scheduleDraftForTask(task: Pick<ScheduledTask, "schedule">): Sch
       };
     case "once":
       return { ...DEFAULT_SCHEDULE, mode: "once", runAt: task.schedule.runAt };
+    case "cron":
+      return { ...DEFAULT_SCHEDULE, mode: "cron", cronExpression: task.schedule.expression };
     case "interval":
       return {
         ...DEFAULT_SCHEDULE,
@@ -181,6 +190,11 @@ export function scheduleFromDraft(draft: ScheduleDraft): ScheduledTaskUpsertSche
     const everyMs = Math.round(minutes * 60_000);
     return minutes >= 1 && Number.isSafeInteger(everyMs) ? { type: "interval", everyMs } : null;
   }
+  if (draft.mode === "cron") {
+    return validateCronExpression(draft.cronExpression) === null
+      ? { type: "cron", expression: draft.cronExpression.trim() }
+      : null;
+  }
   const weekdays = [...new Set(draft.weekdays)].sort((a, b) => a - b);
   if (
     !/^([01]?\d|2[0-3]):[0-5]\d$/.test(draft.timeOfDay) ||
@@ -229,6 +243,7 @@ function draftSignature(draft: ScheduledTaskDraft): string {
     draft.schedule.runAt,
     [...draft.schedule.weekdays].sort((a, b) => a - b),
     draft.schedule.intervalMinutes,
+    draft.schedule.cronExpression,
     draft.schedule.maxDeliveryAgeMinutes,
     draft.schedule.replayKey,
     draft.schedule.coalesceKey,

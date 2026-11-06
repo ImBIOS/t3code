@@ -471,7 +471,9 @@ returned unchanged, and a thread with no active provider turn returns
 recurring work in the app scheduler; `schedule_task` with a `scheduledTaskId`
 updates an existing task. A schedule
 runs its prompt on an interval, at a fixed time in the server's local time
-zone, or on each qualifying webhook request, even when no turn is active.
+zone, on a five-field cron expression (`minute hour day month weekday`, also
+in the server's local time zone, e.g. `30 9 * * 1-5`),
+or on each qualifying webhook request, even when no turn is active.
 Without a signature, anyone with the webhook URL can trigger a run.
 Signature checks, filters, and dedupe can skip a webhook request.
 `bindToCurrentThread` defaults to `true` only when the caller has a thread in

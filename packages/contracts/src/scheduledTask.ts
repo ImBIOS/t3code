@@ -1,4 +1,6 @@
 import * as Schema from "effect/Schema";
+import * as Cron from "effect/Cron";
+import * as Result from "effect/Result";
 
 import {
   CommandId,
@@ -29,6 +31,41 @@ const ScheduledTaskIntervalMs = Schema.Int.check(Schema.isGreaterThan(0));
 const ScheduledTaskIntervalSchedule = Schema.Struct({
   type: Schema.Literal("interval"),
   everyMs: ScheduledTaskIntervalMs,
+});
+
+/**
+ * Standard 5-field cron (`minute hour day month weekday`, server-local time),
+ * such as `30 9 * * 1-5`. Six-field expressions with seconds are rejected, so
+ * the tightest spacing stays at the one-minute interval floor.
+ */
+export function normalizeCronExpression(value: string): string {
+  return value.trim().split(/\s+/).join(" ");
+}
+
+/** Null when valid; otherwise why a 5-field expression cannot schedule runs. */
+export function validateCronExpression(value: string): string | null {
+  if (value.trim().split(/\s+/).length !== 5) {
+    return "Expected a cron expression with five fields: minute hour day month weekday, such as '30 9 * * 1-5'.";
+  }
+  const parsed = Cron.parse(value);
+  if (Result.isFailure(parsed)) return `Invalid cron expression: ${parsed.failure.message}.`;
+  // Parsing accepts impossible dates like February 30th, whose search never lands.
+  try {
+    Cron.next(parsed.success);
+  } catch {
+    return "This cron expression never matches a date.";
+  }
+  return null;
+}
+
+// Checked by filter, not pattern, to keep the MCP tool schema small.
+const ScheduledTaskCronSchedule = Schema.Struct({
+  type: Schema.Literal("cron"),
+  expression: TrimmedNonEmptyString.check(
+    Schema.makeFilter((value) => validateCronExpression(value) ?? true),
+  ).annotate({
+    description: "Five-field cron in server-local time, such as '30 9 * * 1-5'.",
+  }),
 });
 
 const ScheduledTaskFixedTimeSchedule = Schema.Struct({
@@ -193,6 +230,7 @@ const ScheduledTaskUpsertWebhookSchedule = Schema.Struct({
 /** Accept legacy sub-minute schedules so users can still manage them. */
 export const ScheduledTaskSchedule = Schema.Union([
   ScheduledTaskIntervalSchedule,
+  ScheduledTaskCronSchedule,
   ScheduledTaskFixedTimeSchedule,
   ScheduledTaskOnceSchedule,
   ScheduledTaskWebhookSchedule,
@@ -208,6 +246,7 @@ export const ScheduledTaskUpsertSchedule = Schema.Union([
       description: "Min 60000.",
     }),
   }),
+  ScheduledTaskCronSchedule,
   ScheduledTaskFixedTimeSchedule,
   ScheduledTaskOnceSchedule,
   ScheduledTaskUpsertWebhookSchedule,

@@ -206,6 +206,32 @@ describe("one-time scheduled tasks", () => {
   });
 });
 
+describe("cron scheduled tasks", () => {
+  const cronTask: ScheduledTask = {
+    ...legacyTask,
+    schedule: { type: "cron", expression: "30 9 * * 1-5" },
+  };
+
+  it("round-trips the expression and rejects invalid ones", () => {
+    const draft = taskToDraft(cronTask);
+    expect(draft.scheduleMode).toBe("cron");
+    expect(draft.cronExpression).toBe("30 9 * * 1-5");
+    expect(scheduleFromDraft(draft)).toEqual({ type: "cron", expression: "30 9 * * 1-5" });
+    expect(scheduleFromDraft({ ...draft, cronExpression: "  0  9  *  *  *  " })).toEqual({
+      type: "cron",
+      expression: "0  9  *  *  *",
+    });
+    for (const cronExpression of ["30 9 * *", "0 30 9 * * 1-5", "0 0 30 2 *", ""]) {
+      expect(scheduleFromDraft({ ...draft, cronExpression })).toBeNull();
+    }
+  });
+
+  it("defaults a new draft to weekday mornings", () => {
+    const draft = taskToDraft(legacyTask);
+    expect(draft.cronExpression).toBe("0 9 * * *");
+  });
+});
+
 describe("webhook scheduled tasks", () => {
   const signature = { header: "x-signature", encoding: "base64", prefix: "" } as const;
   const webhookTask: ScheduledTask = {
